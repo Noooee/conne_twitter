@@ -120,6 +120,134 @@ document.addEventListener("DOMContentLoaded", () => {
   let pendingAvatarDataUrl = undefined;
 
   // ==================================================
+  // デコレーション プリセット定義
+  // ==================================================
+
+  const DECORATION_PRESETS = {
+
+    avatarFrame: [
+      { value: "none", label: "なし", preview: "○" },
+      { value: "gold", label: "ゴールド", preview: "🟡" },
+      { value: "silver", label: "シルバー", preview: "⚪" },
+      { value: "neon", label: "ネオン", preview: "🟣" },
+      { value: "dashed", label: "破線", preview: "⭕" },
+      { value: "sparkle", label: "キラキラ", preview: "✨" },
+      { value: "fire", label: "炎", preview: "🔥" }
+    ],
+
+    avatarSticker: [
+      { value: "", label: "なし", preview: "―" },
+      { value: "😎", label: "クール", preview: "😎" },
+      { value: "🔥", label: "熱血", preview: "🔥" },
+      { value: "🌸", label: "のんびり", preview: "🌸" },
+      { value: "⭐", label: "天才", preview: "⭐" },
+      { value: "👑", label: "ボス", preview: "👑" },
+      { value: "🎧", label: "ゲーマー", preview: "🎧" },
+      { value: "🍀", label: "ラッキー", preview: "🍀" },
+      { value: "💎", label: "VIP", preview: "💎" }
+    ],
+
+    nameFont: [
+      { value: "default", label: "標準", preview: "Aa" },
+      { value: "jagged", label: "ギザギザ", preview: "Aa" },
+      { value: "wavy", label: "ふわふわ", preview: "Aa" },
+      { value: "bold-italic", label: "ボールド斜体", preview: "Aa" },
+      { value: "rounded", label: "丸文字", preview: "Aa" },
+      { value: "gothic", label: "ゴシック風", preview: "Aa" },
+      { value: "retro", label: "レトロ風", preview: "Aa" }
+    ],
+
+    nameTag: [
+      { value: "", label: "なし", preview: "―" },
+      { value: "クール😎", label: "クール😎", preview: "クール😎" },
+      { value: "熱血🔥", label: "熱血🔥", preview: "熱血🔥" },
+      { value: "のんびり🌸", label: "のんびり🌸", preview: "のんびり🌸" },
+      { value: "天才⭐", label: "天才⭐", preview: "天才⭐" },
+      { value: "ボス👑", label: "ボス👑", preview: "ボス👑" },
+      { value: "ゲーマー🎧", label: "ゲーマー🎧", preview: "ゲーマー🎧" },
+      { value: "ラッキー🍀", label: "ラッキー🍀", preview: "ラッキー🍀" },
+      { value: "VIP💎", label: "VIP💎", preview: "VIP💎" }
+    ],
+
+    bubbleStyle: [
+      { value: "default", label: "標準", preview: "▭" },
+      { value: "round", label: "丸っこい", preview: "◯" },
+      { value: "handwritten", label: "手書き風", preview: "〰" },
+      { value: "sharp", label: "シャープ", preview: "◆" },
+      { value: "cloud", label: "もこもこ", preview: "☁" },
+      { value: "ribbon", label: "リボン", preview: "🎀" }
+    ],
+
+    profileTheme: [
+      { value: "default", label: "標準", preview: "⬜" },
+      { value: "sunset", label: "サンセット", preview: "🌇" },
+      { value: "ocean", label: "オーシャン", preview: "🌊" },
+      { value: "forest", label: "フォレスト", preview: "🌲" },
+      { value: "lavender", label: "ラベンダー", preview: "💜" },
+      { value: "midnight", label: "ミッドナイト", preview: "🌌" }
+    ]
+
+  };
+
+  let selectedDecorations = {
+    avatarFrame: "none",
+    avatarSticker: "",
+    nameFont: "default",
+    nameTag: "",
+    bubbleStyle: "default",
+    profileTheme: "default"
+  };
+
+  function renderDecorationPicker(containerEl, field, currentValue) {
+
+    if (!containerEl) return;
+
+    containerEl.innerHTML = "";
+
+    for (const option of DECORATION_PRESETS[field]) {
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "decoration-option";
+      button.classList.toggle("active", option.value === currentValue);
+      button.innerHTML = `<span class="decoration-preview">${option.preview}</span><span class="decoration-option-label">${option.label}</span>`;
+
+      button.addEventListener("click", () => {
+
+        selectedDecorations[field] = option.value;
+
+        containerEl.querySelectorAll(".decoration-option").forEach(el => el.classList.remove("active"));
+        button.classList.add("active");
+
+      });
+
+      containerEl.appendChild(button);
+
+    }
+
+  }
+
+  function renderAllDecorationPickers(user) {
+
+    selectedDecorations = {
+      avatarFrame: user?.avatarFrame || "none",
+      avatarSticker: user?.avatarSticker || "",
+      nameFont: user?.nameFont || "default",
+      nameTag: user?.nameTag || "",
+      bubbleStyle: user?.bubbleStyle || "default",
+      profileTheme: user?.profileTheme || "default"
+    };
+
+    renderDecorationPicker(document.getElementById("avatarFramePicker"), "avatarFrame", selectedDecorations.avatarFrame);
+    renderDecorationPicker(document.getElementById("avatarStickerPicker"), "avatarSticker", selectedDecorations.avatarSticker);
+    renderDecorationPicker(document.getElementById("nameFontPicker"), "nameFont", selectedDecorations.nameFont);
+    renderDecorationPicker(document.getElementById("nameTagPicker"), "nameTag", selectedDecorations.nameTag);
+    renderDecorationPicker(document.getElementById("bubbleStylePicker"), "bubbleStyle", selectedDecorations.bubbleStyle);
+    renderDecorationPicker(document.getElementById("profileThemePicker"), "profileTheme", selectedDecorations.profileTheme);
+
+  }
+
+  // ==================================================
   // View Profile Modal（他ユーザーのプロフィール表示）
   // ==================================================
 
@@ -563,7 +691,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   }
 
-  function avatarInnerHtml(avatarUrl, name) {
+  function avatarInnerHtml(avatarUrl, name, sticker) {
 
     const letter =
       String(name || "U")
@@ -571,14 +699,23 @@ document.addEventListener("DOMContentLoaded", () => {
         .charAt(0)
         .toUpperCase() || "U";
 
+    const stickerHtml =
+      sticker
+        ? `<span class="avatar-sticker">${escapeHtml(sticker)}</span>`
+        : "";
+
     if (avatarUrl) {
 
-      return `<img src="${escapeHtml(avatarUrl)}" alt="" class="avatar-image">`;
+      return `<img src="${escapeHtml(avatarUrl)}" alt="" class="avatar-image">${stickerHtml}`;
 
     }
 
-    return `<span class="avatar-fallback">${escapeHtml(letter)}</span>`;
+    return `<span class="avatar-fallback">${escapeHtml(letter)}</span>${stickerHtml}`;
 
+  }
+
+  function avatarFrameClass(frame) {
+    return frame && frame !== "none" ? `avatar-frame-${frame}` : "";
   }
 
   function formatTime(dateValue) {
@@ -893,7 +1030,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const fallback =
         userAvatarWrapper.querySelector(
-          "span:not(.user-avatar-image)"
+          "span.avatar-fallback, span:not(.user-avatar-image):not(.avatar-sticker)"
         );
 
       if (fallback) {
@@ -903,6 +1040,37 @@ document.addEventListener("DOMContentLoaded", () => {
             .trim()
             .charAt(0)
             .toUpperCase() || "U";
+
+      }
+
+      userAvatarWrapper.className =
+        userAvatarWrapper.className
+          .split(" ")
+          .filter(cls => !cls.startsWith("avatar-frame-"))
+          .join(" ")
+          .trim();
+
+      const frameClass = avatarFrameClass(currentUser.avatarFrame);
+
+      if (frameClass) {
+        userAvatarWrapper.classList.add(frameClass);
+      }
+
+      let stickerEl = userAvatarWrapper.querySelector(".avatar-sticker");
+
+      if (currentUser.avatarSticker) {
+
+        if (!stickerEl) {
+          stickerEl = document.createElement("span");
+          stickerEl.className = "avatar-sticker";
+          userAvatarWrapper.appendChild(stickerEl);
+        }
+
+        stickerEl.textContent = currentUser.avatarSticker;
+
+      } else if (stickerEl) {
+
+        stickerEl.remove();
 
       }
 
@@ -3042,7 +3210,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="message-header">
 
         <span
-          class="message-username"
+          class="message-username name-font-${escapeHtml(message.nameFont || "default")}"
           data-action="view-profile"
           data-user-id="${escapeHtml(String(message.userId))}"
           tabindex="0"
@@ -3052,6 +3220,12 @@ document.addEventListener("DOMContentLoaded", () => {
             username
           )}
         </span>
+
+        ${
+          message.nameTag
+            ? `<span class="name-tag">${escapeHtml(message.nameTag)}</span>`
+            : ""
+        }
 
         <span class="message-time">
           ${formatTime(
@@ -3099,7 +3273,7 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.innerHTML = `
 
       <div
-        class="message-avatar"
+        class="message-avatar ${avatarFrameClass(message.avatarFrame)}"
         data-action="view-profile"
         data-user-id="${escapeHtml(String(message.userId))}"
         tabindex="0"
@@ -3110,7 +3284,8 @@ document.addEventListener("DOMContentLoaded", () => {
             ? `<span class="message-hover-time">${formatTime(message.createdAt)}</span>`
             : avatarInnerHtml(
                 message.avatar,
-                username
+                username,
+                message.avatarSticker
               )
         }
       </div>
@@ -3119,7 +3294,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         ${headerHtml}
 
-        <div class="message-bubble">
+        <div class="message-bubble bubble-style-${escapeHtml(message.bubbleStyle || "default")}">
 
           ${replyHtml}
 
@@ -3817,7 +3992,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // アイコン/名前クリックで自己紹介を表示）
   // ==================================================
 
-  function setViewProfilePreview(avatarUrl, name) {
+  function setViewProfilePreview(avatarUrl, name, frame, sticker) {
 
     const letter =
       (name || "U")
@@ -3847,6 +4022,55 @@ document.addEventListener("DOMContentLoaded", () => {
 
     }
 
+    const viewProfileAvatarEl = document.getElementById("viewProfileAvatar");
+
+    if (viewProfileAvatarEl) {
+
+      viewProfileAvatarEl.className =
+        viewProfileAvatarEl.className
+          .split(" ")
+          .filter(cls => !cls.startsWith("avatar-frame-"))
+          .join(" ")
+          .trim() || "profile-avatar";
+
+      const frameClass = avatarFrameClass(frame);
+
+      if (frameClass) {
+        viewProfileAvatarEl.classList.add(frameClass);
+      }
+
+      let stickerEl = viewProfileAvatarEl.querySelector(".avatar-sticker");
+
+      if (sticker) {
+
+        if (!stickerEl) {
+          stickerEl = document.createElement("span");
+          stickerEl.className = "avatar-sticker";
+          viewProfileAvatarEl.appendChild(stickerEl);
+        }
+
+        stickerEl.textContent = sticker;
+
+      } else if (stickerEl) {
+
+        stickerEl.remove();
+
+      }
+
+    }
+
+  }
+
+  function setViewProfileTheme(theme) {
+
+    const banner = document.getElementById("viewProfileThemeBanner");
+
+    if (!banner) return;
+
+    banner.className =
+      "profile-theme-banner" +
+      (theme && theme !== "default" ? ` profile-theme-${theme}` : "");
+
   }
 
   function closeViewProfileModal() {
@@ -3875,6 +4099,10 @@ document.addEventListener("DOMContentLoaded", () => {
     if (viewProfileBio) viewProfileBio.textContent = "";
 
     setViewProfilePreview(fallbackAvatar || null, fallbackName);
+    setViewProfileTheme("default");
+
+    const nameTagEl = document.getElementById("viewProfileNameTag");
+    nameTagEl?.classList.add("hidden");
 
     editOwnProfileButton?.classList.add("hidden");
     viewProfileFriendButton?.classList.add("hidden");
@@ -3899,7 +4127,19 @@ document.addEventListener("DOMContentLoaded", () => {
               : "自己紹介はまだありません。";
         }
 
-        setViewProfilePreview(data.user.avatar || null, data.user.name);
+        setViewProfilePreview(data.user.avatar || null, data.user.name, data.user.avatarFrame, data.user.avatarSticker);
+        setViewProfileTheme(data.user.profileTheme);
+
+        if (nameTagEl) {
+
+          if (data.user.nameTag) {
+            nameTagEl.textContent = data.user.nameTag;
+            nameTagEl.classList.remove("hidden");
+          } else {
+            nameTagEl.classList.add("hidden");
+          }
+
+        }
 
         renderFriendButton(data.user.friendStatus, data.user.friendRequestId);
 
@@ -4024,6 +4264,8 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     setProfilePreview(currentUser.avatar || null, currentUser.name);
+
+    renderAllDecorationPickers(currentUser);
 
     profileModal.classList.remove("hidden");
 
@@ -4238,7 +4480,16 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const payload = { name, bio };
+    const payload = {
+      name,
+      bio,
+      avatarFrame: selectedDecorations.avatarFrame,
+      avatarSticker: selectedDecorations.avatarSticker,
+      nameFont: selectedDecorations.nameFont,
+      nameTag: selectedDecorations.nameTag,
+      bubbleStyle: selectedDecorations.bubbleStyle,
+      profileTheme: selectedDecorations.profileTheme
+    };
 
     if (pendingAvatarDataUrl !== undefined) {
       payload.avatar = pendingAvatarDataUrl;
