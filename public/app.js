@@ -173,6 +173,43 @@ document.addEventListener("DOMContentLoaded", () => {
   const dmList =
     document.getElementById("dmList");
 
+  const dmListEmpty =
+    document.getElementById("dmListEmpty");
+
+  const openDMsButton =
+    document.getElementById("openDMsButton");
+
+  const dmNotifBadge =
+    document.getElementById("dmNotifBadge");
+
+  const dmModal =
+    document.getElementById("dmModal");
+
+  const closeDMsButton =
+    document.getElementById("closeDMsButton");
+
+  // ==================================================
+  // 通知パネル
+  // ==================================================
+
+  const notificationsButton =
+    document.getElementById("notificationsButton");
+
+  const notificationsBadge =
+    document.getElementById("notificationsBadge");
+
+  const notificationsPanel =
+    document.getElementById("notificationsPanel");
+
+  const notificationsList =
+    document.getElementById("notificationsList");
+
+  const notificationsEmpty =
+    document.getElementById("notificationsEmpty");
+
+  const clearNotificationsButton =
+    document.getElementById("clearNotificationsButton");
+
   const roomName =
     document.getElementById(
       "roomName"
@@ -460,6 +497,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let currentChatType = "room";
 
   let dmListData = [];
+  let dmSeenTimestamps = {};
+  let dmSnapshotInitialized = false;
+  let notifications = [];
 
   let currentRoom = {
     id: "casual",
@@ -967,6 +1007,32 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     );
 
+    socket.on(
+      "friend request received",
+      (data) => {
+
+        addNotification(
+          "friend",
+          `${data?.fromName || "誰か"}さんからフレンド申請が届きました`,
+          () => openFriendsModal()
+        );
+
+      }
+    );
+
+    socket.on(
+      "friend request accepted",
+      (data) => {
+
+        addNotification(
+          "friend",
+          `${data?.byName || "誰か"}さんとフレンドになりました`,
+          () => openFriendsModal()
+        );
+
+      }
+    );
+
     // ==================================================
     // Disconnect
     // ==================================================
@@ -1176,7 +1242,53 @@ document.addEventListener("DOMContentLoaded", () => {
     // ==================================================
 
     socket.on("my dms", (list) => {
+
       dmListData = Array.isArray(list) ? list : [];
+
+      if (!dmSnapshotInitialized) {
+
+        // 初回受信時は「新着」とみなさず、基準値として記録するだけ
+        for (const dm of dmListData) {
+          dmSeenTimestamps[dm.id] = dm.lastMessageAt ? new Date(dm.lastMessageAt).getTime() : 0;
+        }
+
+        dmSnapshotInitialized = true;
+
+      } else {
+
+        for (const dm of dmListData) {
+
+          const isOpen =
+            currentChatType === "dm" &&
+            String(currentRoomId) === String(dm.id);
+
+          const newTime = dm.lastMessageAt ? new Date(dm.lastMessageAt).getTime() : 0;
+          const seenTime = dmSeenTimestamps[dm.id] || 0;
+
+          if (newTime > seenTime) {
+
+            if (isOpen) {
+
+              dmSeenTimestamps[dm.id] = newTime;
+
+            } else {
+
+              addNotification(
+                "dm",
+                `${dm.otherUserName || "ユーザー"}: ${dm.lastMessage || "新しいメッセージ"}`,
+                () => openDM(dm.id)
+              );
+
+              dmSeenTimestamps[dm.id] = newTime;
+
+            }
+
+          }
+
+        }
+
+      }
+
       renderDMList();
     });
 
@@ -2033,34 +2145,160 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     socket.emit("start dm", { userId });
     closeUserSearchModal();
+    closeDMsModal();
   }
 
   function openDM(conversationId) {
     if (!socket || !socket.connected) return;
     socket.emit("open dm", { conversationId });
+    dmSeenTimestamps[conversationId] = Date.now();
+    closeDMsModal();
   }
 
   function renderDMList() {
     if (!dmList) return;
     dmList.innerHTML = "";
-    if (dmListData.length === 0) {
-      const empty = document.createElement("div");
-      empty.className = "dm-empty";
-      empty.textContent = "まだDMはありません";
-      dmList.appendChild(empty);
-      return;
-    }
+    dmListEmpty?.classList.toggle("hidden", dmListData.length > 0);
     for (const dm of dmListData) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "dm-button";
       if (String(currentRoomId) === String(dm.id) && currentChatType === "dm") button.classList.add("active");
-      const initial = (dm.otherUserName || "U").charAt(0).toUpperCase();
       button.innerHTML = `<span class="dm-avatar">${avatarInnerHtml(dm.otherUserAvatar, dm.otherUserName)}</span><span class="dm-info"><span class="dm-name">${escapeHtml(dm.otherUserName || "ユーザー")}</span><span class="dm-last-message">${escapeHtml(dm.lastMessage || "新しいDM")}</span></span>`;
       button.addEventListener("click", () => openDM(dm.id));
       dmList.appendChild(button);
     }
   }
+
+  function openDMsModal() {
+    dmModal?.classList.remove("hidden");
+    notifications = notifications.filter(n => n.type !== "dm");
+    renderNotifications();
+  }
+
+  function closeDMsModal() {
+    dmModal?.classList.add("hidden");
+  }
+
+  openDMsButton?.addEventListener("click", openDMsModal);
+  closeDMsButton?.addEventListener("click", closeDMsModal);
+  dmModal?.addEventListener("click", (event) => {
+    if (event.target === dmModal) closeDMsModal();
+  });
+
+  // ==================================================
+  // 通知パネル
+  // ==================================================
+
+  function addNotification(type, text, onClick) {
+
+    const notification = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      type,
+      text,
+      time: new Date(),
+      onClick: onClick || null
+    };
+
+    notifications.unshift(notification);
+
+    if (notifications.length > 30) {
+      notifications = notifications.slice(0, 30);
+    }
+
+    renderNotifications();
+
+  }
+
+  function renderNotifications() {
+
+    if (notificationsList) {
+
+      notificationsList.innerHTML = "";
+
+      for (const notification of notifications) {
+
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = "notification-item";
+
+        item.innerHTML = `
+          <span class="notification-icon">${notification.type === "friend" ? "👥" : "💬"}</span>
+          <span class="notification-body">
+            <span class="notification-text">${escapeHtml(notification.text)}</span>
+            <span class="notification-time">${formatTime(notification.time)}</span>
+          </span>
+        `;
+
+        item.addEventListener("click", () => {
+
+          notifications = notifications.filter(n => n.id !== notification.id);
+          renderNotifications();
+
+          if (notification.onClick) {
+            notification.onClick();
+          }
+
+          notificationsPanel?.classList.add("hidden");
+
+        });
+
+        notificationsList.appendChild(item);
+
+      }
+
+    }
+
+    notificationsEmpty?.classList.toggle("hidden", notifications.length > 0);
+
+    if (notificationsBadge) {
+
+      if (notifications.length > 0) {
+        notificationsBadge.textContent = String(notifications.length);
+        notificationsBadge.classList.remove("hidden");
+      } else {
+        notificationsBadge.classList.add("hidden");
+      }
+
+    }
+
+    if (dmNotifBadge) {
+
+      const dmCount = notifications.filter(n => n.type === "dm").length;
+
+      if (dmCount > 0) {
+        dmNotifBadge.textContent = String(dmCount);
+        dmNotifBadge.classList.remove("hidden");
+      } else {
+        dmNotifBadge.classList.add("hidden");
+      }
+
+    }
+
+  }
+
+  notificationsButton?.addEventListener("click", () => {
+    notificationsPanel?.classList.toggle("hidden");
+  });
+
+  clearNotificationsButton?.addEventListener("click", () => {
+    notifications = [];
+    renderNotifications();
+  });
+
+  document.addEventListener("click", (event) => {
+
+    if (
+      notificationsPanel &&
+      !notificationsPanel.classList.contains("hidden") &&
+      !notificationsPanel.contains(event.target) &&
+      event.target !== notificationsButton &&
+      !notificationsButton?.contains(event.target)
+    ) {
+      notificationsPanel.classList.add("hidden");
+    }
+
+  });
 
   // ==================================================
   // Friends
