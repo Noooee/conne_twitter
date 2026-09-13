@@ -6707,3 +6707,121 @@ body.gray-mode .message-actions {
 .message-text a:hover {
   color: var(--primary-dark);
 }
+
+/* =========================================================
+   ★ 通知パネル
+========================================================= */
+
+.icon-button {
+  position: relative;
+}
+
+.notif-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+}
+
+.notifications-panel {
+  position: absolute;
+  top: 64px;
+  left: 14px;
+  right: 14px;
+  z-index: 50;
+
+  max-height: 360px;
+  overflow-y: auto;
+
+  padding: 10px;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.14);
+}
+
+.notifications-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-soft);
+}
+
+.notif-clear-button {
+  border: 0;
+  background: transparent;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.notif-clear-button:hover {
+  text-decoration: underline;
+}
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+
+  width: 100%;
+  padding: 8px;
+
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+
+  text-align: left;
+  cursor: pointer;
+
+  transition: background .15s ease;
+}
+
+.notification-item:hover {
+  background: var(--primary-light);
+}
+
+.notification-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.notification-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.notification-text {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.notification-time {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------
+   DMモーダル：新規DMボタン
+--------------------------------------------------------- */
+
+.dm-new-button {
+  width: 100%;
+  margin-bottom: 12px;
+}
