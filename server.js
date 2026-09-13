@@ -1342,6 +1342,13 @@ app.post(
         return res.status(400).json({ message: "自分自身には申請できません。" });
       }
 
+      const meResult = await pool.query(
+        `SELECT name FROM users WHERE id = $1 LIMIT 1`,
+        [myId]
+      );
+
+      const myName = meResult.rows[0]?.name || "誰か";
+
       const targetExists = await pool.query(
         `SELECT id FROM users WHERE id = $1 LIMIT 1`,
         [targetId]
@@ -1364,6 +1371,7 @@ app.post(
 
       if (reverseResult.rows.length > 0) {
         notifyUser(targetId, "friend request update");
+        notifyUser(targetId, "friend request accepted", { byId: myId, byName: myName });
         return res.json({ status: "accepted", message: "フレンドになりました。" });
       }
 
@@ -1400,6 +1408,7 @@ app.post(
         );
 
         notifyUser(targetId, "friend request update");
+        notifyUser(targetId, "friend request received", { fromId: myId, fromName: myName });
 
         return res.json({ status: "pending", message: "フレンド申請を送りました。" });
 
@@ -1414,6 +1423,7 @@ app.post(
       );
 
       notifyUser(targetId, "friend request update");
+      notifyUser(targetId, "friend request received", { fromId: myId, fromName: myName });
 
       return res.json({ status: "pending", message: "フレンド申請を送りました。" });
 
@@ -1453,7 +1463,16 @@ app.post(
         return res.status(404).json({ message: "この申請は見つかりませんでした。" });
       }
 
-      notifyUser(Number(result.rows[0].from_user_id), "friend request update");
+      const meResult = await pool.query(
+        `SELECT name FROM users WHERE id = $1 LIMIT 1`,
+        [myId]
+      );
+
+      const myName = meResult.rows[0]?.name || "誰か";
+      const fromUserId = Number(result.rows[0].from_user_id);
+
+      notifyUser(fromUserId, "friend request update");
+      notifyUser(fromUserId, "friend request accepted", { byId: Number(myId), byName: myName });
 
       return res.json({ message: "フレンドになりました。" });
 
