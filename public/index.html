@@ -304,6 +304,16 @@
 
 
           <button
+            id="notificationsButton"
+            type="button"
+            class="icon-button"
+            title="通知"
+          >
+            🔔
+            <span id="notificationsBadge" class="friend-badge notif-badge hidden">0</span>
+          </button>
+
+          <button
             id="settingsButton"
             type="button"
             class="icon-button"
@@ -311,6 +321,23 @@
           >
             ⚙
           </button>
+
+        </div>
+
+        <!-- ================================
+             通知パネル
+        ================================= -->
+
+        <div id="notificationsPanel" class="notifications-panel hidden">
+
+          <div class="notifications-header">
+            <span>通知</span>
+            <button id="clearNotificationsButton" type="button" class="notif-clear-button">すべて既読</button>
+          </div>
+
+          <div id="notificationsEmpty" class="dm-empty">通知はありません</div>
+
+          <div id="notificationsList" class="notifications-list"></div>
 
         </div>
 
@@ -443,19 +470,14 @@
 
           <div class="dm-section">
 
-            <div class="dm-section-header">
+            <button
+              id="openDMsButton"
+              type="button"
+              class="dm-section-header friends-header-button"
+            >
               <span>ダイレクトメッセージ</span>
-              <button
-                id="userSearchButton"
-                type="button"
-                class="dm-add-button"
-                title="ユーザーを検索"
-              >
-                ＋
-              </button>
-            </div>
-
-            <div id="dmList" class="dm-list"></div>
+              <span id="dmNotifBadge" class="friend-badge notif-badge hidden">0</span>
+            </button>
 
           </div>
 
@@ -755,6 +777,33 @@
           <div id="outgoingRequestsEmpty" class="dm-empty hidden">送信中のリクエストはありません</div>
           <div id="outgoingRequestsList" class="user-search-results"></div>
         </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================
+       DMモーダル
+  ================================================== -->
+
+  <div id="dmModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>ダイレクトメッセージ</h2>
+        <button id="closeDMsButton" type="button" class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+
+        <button
+          id="userSearchButton"
+          type="button"
+          class="secondary-button dm-new-button"
+        >
+          ＋ 新しいDMを始める
+        </button>
+
+        <div id="dmListEmpty" class="dm-empty hidden">まだDMはありません</div>
+        <div id="dmList" class="user-search-results"></div>
 
       </div>
     </div>
