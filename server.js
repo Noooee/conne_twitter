@@ -204,6 +204,38 @@ async function initDatabase() {
     ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''
   `);
 
+  // デコレーション機能（アイコン枠・ステッカー・名前フォント・
+  // ネームタグ・吹き出しスタイル・プロフィール背景）
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS avatar_frame TEXT NOT NULL DEFAULT 'none'
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS avatar_sticker TEXT NOT NULL DEFAULT ''
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS name_font TEXT NOT NULL DEFAULT 'default'
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS name_tag TEXT NOT NULL DEFAULT ''
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS bubble_style TEXT NOT NULL DEFAULT 'default'
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS profile_theme TEXT NOT NULL DEFAULT 'default'
+  `);
+
   // ==================================================
   // Rooms
   // ==================================================
@@ -629,6 +661,34 @@ function hashToken(token) {
 }
 
 // ==================================================
+// デコレーション機能のプリセット定義
+// ==================================================
+
+const AVATAR_FRAMES = [
+  "none", "gold", "silver", "neon", "dashed", "sparkle", "fire"
+];
+
+const AVATAR_STICKERS = [
+  "", "😎", "🔥", "🌸", "⭐", "👑", "🎧", "🍀", "💎"
+];
+
+const NAME_FONTS = [
+  "default", "jagged", "wavy", "bold-italic", "rounded", "gothic", "retro"
+];
+
+const NAME_TAGS = [
+  "", "クール😎", "熱血🔥", "のんびり🌸", "天才⭐", "ボス👑", "ゲーマー🎧", "ラッキー🍀", "VIP💎"
+];
+
+const BUBBLE_STYLES = [
+  "default", "round", "handwritten", "sharp", "cloud", "ribbon"
+];
+
+const PROFILE_THEMES = [
+  "default", "sunset", "ocean", "forest", "lavender", "midnight"
+];
+
+// ==================================================
 // 画像バリデーション（アイコン・チャット添付共通）
 // ==================================================
 
@@ -669,7 +729,13 @@ function sanitizeUser(user) {
     email: user.email,
     name: user.name,
     avatar: user.avatar || null,
-    bio: user.bio || ""
+    bio: user.bio || "",
+    avatarFrame: user.avatar_frame || "none",
+    avatarSticker: user.avatar_sticker || "",
+    nameFont: user.name_font || "default",
+    nameTag: user.name_tag || "",
+    bubbleStyle: user.bubble_style || "default",
+    profileTheme: user.profile_theme || "default"
   };
 
 }
@@ -716,6 +782,16 @@ function formatMessage(row) {
     username: row.username,
 
     avatar: row.avatar || null,
+
+    avatarFrame: row.avatar_frame || "none",
+
+    avatarSticker: row.avatar_sticker || "",
+
+    nameFont: row.name_font || "default",
+
+    nameTag: row.name_tag || "",
+
+    bubbleStyle: row.bubble_style || "default",
 
     text: row.text,
 
@@ -790,7 +866,13 @@ app.get(
             email,
             name,
             avatar,
-            bio
+            bio,
+            avatar_frame,
+            avatar_sticker,
+            name_font,
+            name_tag,
+            bubble_style,
+            profile_theme
           FROM users
           WHERE id = $1
           `,
@@ -867,6 +949,36 @@ app.put(
           ? req.body.avatar
           : undefined;
 
+      const avatarFrame =
+        req.body?.avatarFrame !== undefined
+          ? String(req.body.avatarFrame)
+          : undefined;
+
+      const avatarSticker =
+        req.body?.avatarSticker !== undefined
+          ? String(req.body.avatarSticker)
+          : undefined;
+
+      const nameFont =
+        req.body?.nameFont !== undefined
+          ? String(req.body.nameFont)
+          : undefined;
+
+      const nameTag =
+        req.body?.nameTag !== undefined
+          ? String(req.body.nameTag)
+          : undefined;
+
+      const bubbleStyle =
+        req.body?.bubbleStyle !== undefined
+          ? String(req.body.bubbleStyle)
+          : undefined;
+
+      const profileTheme =
+        req.body?.profileTheme !== undefined
+          ? String(req.body.profileTheme)
+          : undefined;
+
       if (name !== undefined) {
 
         if (!name || name.length > 50) {
@@ -875,6 +987,30 @@ app.put(
           });
         }
 
+      }
+
+      if (avatarFrame !== undefined && !AVATAR_FRAMES.includes(avatarFrame)) {
+        return res.status(400).json({ message: "アイコン枠が正しくありません。" });
+      }
+
+      if (avatarSticker !== undefined && !AVATAR_STICKERS.includes(avatarSticker)) {
+        return res.status(400).json({ message: "ステッカーが正しくありません。" });
+      }
+
+      if (nameFont !== undefined && !NAME_FONTS.includes(nameFont)) {
+        return res.status(400).json({ message: "フォントが正しくありません。" });
+      }
+
+      if (nameTag !== undefined && !NAME_TAGS.includes(nameTag)) {
+        return res.status(400).json({ message: "ネームタグが正しくありません。" });
+      }
+
+      if (bubbleStyle !== undefined && !BUBBLE_STYLES.includes(bubbleStyle)) {
+        return res.status(400).json({ message: "吹き出しスタイルが正しくありません。" });
+      }
+
+      if (profileTheme !== undefined && !PROFILE_THEMES.includes(profileTheme)) {
+        return res.status(400).json({ message: "プロフィールの背景が正しくありません。" });
       }
 
       if (
@@ -917,6 +1053,36 @@ app.put(
         values.push(avatar === null || avatar === "" ? null : avatar);
       }
 
+      if (avatarFrame !== undefined) {
+        fields.push(`avatar_frame = $${index++}`);
+        values.push(avatarFrame);
+      }
+
+      if (avatarSticker !== undefined) {
+        fields.push(`avatar_sticker = $${index++}`);
+        values.push(avatarSticker);
+      }
+
+      if (nameFont !== undefined) {
+        fields.push(`name_font = $${index++}`);
+        values.push(nameFont);
+      }
+
+      if (nameTag !== undefined) {
+        fields.push(`name_tag = $${index++}`);
+        values.push(nameTag);
+      }
+
+      if (bubbleStyle !== undefined) {
+        fields.push(`bubble_style = $${index++}`);
+        values.push(bubbleStyle);
+      }
+
+      if (profileTheme !== undefined) {
+        fields.push(`profile_theme = $${index++}`);
+        values.push(profileTheme);
+      }
+
       if (fields.length === 0) {
         return res.status(400).json({
           message: "更新する項目がありません。"
@@ -930,7 +1096,7 @@ app.put(
         UPDATE users
         SET ${fields.join(", ")}
         WHERE id = $${index}
-        RETURNING id, email, name, avatar, bio
+        RETURNING id, email, name, avatar, bio, avatar_frame, avatar_sticker, name_font, name_tag, bubble_style, profile_theme
         `,
         values
       );
@@ -1178,7 +1344,7 @@ app.get(
 
       const result = await pool.query(
         `
-        SELECT id, name, avatar, bio
+        SELECT id, name, avatar, bio, avatar_frame, avatar_sticker, name_font, name_tag, bubble_style, profile_theme
         FROM users
         WHERE id = $1
         LIMIT 1
@@ -1230,6 +1396,12 @@ app.get(
           name: row.name,
           avatar: row.avatar || null,
           bio: row.bio || "",
+          avatarFrame: row.avatar_frame || "none",
+          avatarSticker: row.avatar_sticker || "",
+          nameFont: row.name_font || "default",
+          nameTag: row.name_tag || "",
+          bubbleStyle: row.bubble_style || "default",
+          profileTheme: row.profile_theme || "default",
           friendStatus,
           friendRequestId
         }
@@ -1785,7 +1957,13 @@ app.post(
             email,
             name,
             avatar,
-            bio
+            bio,
+            avatar_frame,
+            avatar_sticker,
+            name_font,
+            name_tag,
+            bubble_style,
+            profile_theme
           `,
           [
             email,
@@ -1905,7 +2083,13 @@ app.post(
             name,
             password_hash,
             avatar,
-            bio
+            bio,
+            avatar_frame,
+            avatar_sticker,
+            name_font,
+            name_tag,
+            bubble_style,
+            profile_theme
           FROM users
           WHERE name = $1
           LIMIT 1
@@ -2488,7 +2672,13 @@ io.on(
             email,
             name,
             avatar,
-            bio
+            bio,
+            avatar_frame,
+            avatar_sticker,
+            name_font,
+            name_tag,
+            bubble_style,
+            profile_theme
           FROM users
           WHERE id = $1
           `,
@@ -2745,6 +2935,11 @@ io.on(
             userId: Number(row.user_id),
             username: row.username,
             avatar: user.avatar || null,
+            avatarFrame: user.avatar_frame || "none",
+            avatarSticker: user.avatar_sticker || "",
+            nameFont: user.name_font || "default",
+            nameTag: user.name_tag || "",
+            bubbleStyle: user.bubble_style || "default",
             text: row.text,
             image: row.image || null,
             createdAt: row.created_at,
@@ -2983,6 +3178,21 @@ io.on(
 
           message.avatar =
             user.avatar || null;
+
+          message.avatarFrame =
+            user.avatar_frame || "none";
+
+          message.avatarSticker =
+            user.avatar_sticker || "";
+
+          message.nameFont =
+            user.name_font || "default";
+
+          message.nameTag =
+            user.name_tag || "";
+
+          message.bubbleStyle =
+            user.bubble_style || "default";
 
           io
             .to(room)
@@ -3920,6 +4130,21 @@ io.on(
           message.avatar =
             user.avatar || null;
 
+          message.avatarFrame =
+            user.avatar_frame || "none";
+
+          message.avatarSticker =
+            user.avatar_sticker || "";
+
+          message.nameFont =
+            user.name_font || "default";
+
+          message.nameTag =
+            user.name_tag || "";
+
+          message.bubbleStyle =
+            user.bubble_style || "default";
+
           io
             .to(message.room)
             .emit(
@@ -4217,7 +4442,12 @@ async function sendPreviousDMMessages(socket, conversationId) {
         dm.text,
         dm.image,
         dm.created_at,
-        u.avatar AS avatar
+        u.avatar AS avatar,
+        u.avatar_frame AS avatar_frame,
+        u.avatar_sticker AS avatar_sticker,
+        u.name_font AS name_font,
+        u.name_tag AS name_tag,
+        u.bubble_style AS bubble_style
       FROM dm_messages dm
       LEFT JOIN users u ON u.id::text = dm.user_id::text
       WHERE dm.conversation_id = $1
@@ -4233,6 +4463,11 @@ async function sendPreviousDMMessages(socket, conversationId) {
       userId: Number(row.user_id),
       username: row.username,
       avatar: row.avatar || null,
+      avatarFrame: row.avatar_frame || "none",
+      avatarSticker: row.avatar_sticker || "",
+      nameFont: row.name_font || "default",
+      nameTag: row.name_tag || "",
+      bubbleStyle: row.bubble_style || "default",
       text: row.text,
       image: row.image || null,
       createdAt: row.created_at,
@@ -4336,7 +4571,12 @@ async function sendPreviousMessages(
           m.reply_to_text,
           m.edited,
           m.created_at,
-          u.avatar AS avatar
+          u.avatar AS avatar,
+          u.avatar_frame AS avatar_frame,
+          u.avatar_sticker AS avatar_sticker,
+          u.name_font AS name_font,
+          u.name_tag AS name_tag,
+          u.bubble_style AS bubble_style
 
         FROM messages m
         LEFT JOIN users u ON u.id::text = m.user_id::text
