@@ -665,6 +665,8 @@
 
         <div class="message-input-area">
 
+          <div id="typingIndicator" class="typing-indicator hidden"></div>
+
           <div id="imageAttachPreview" class="image-attach-preview hidden">
 
             <img id="imageAttachPreviewImg" alt="添付画像プレビュー">
@@ -722,6 +724,26 @@
         </div>
 
       </main>
+
+      <!-- ================================
+           メンバー一覧
+      ================================= -->
+
+      <aside id="memberListPanel" class="member-list-panel">
+
+        <div class="member-list-header">メンバー</div>
+
+        <div id="memberListOnline" class="member-list-group">
+          <div class="member-list-group-title">オンライン ― <span id="memberListOnlineCount">0</span></div>
+          <div id="memberListOnlineItems"></div>
+        </div>
+
+        <div id="memberListOffline" class="member-list-group">
+          <div class="member-list-group-title">オフライン ― <span id="memberListOfflineCount">0</span></div>
+          <div id="memberListOfflineItems"></div>
+        </div>
+
+      </aside>
 
     </div>
 
@@ -848,44 +870,6 @@
           <div class="profile-character-hint">300文字まで</div>
         </div>
 
-        <!-- ================================
-             デコレーション
-        ================================= -->
-
-        <div class="decoration-section">
-
-          <div class="decoration-group">
-            <div class="decoration-label">アイコン枠</div>
-            <div id="avatarFramePicker" class="decoration-options" data-field="avatarFrame"></div>
-          </div>
-
-          <div class="decoration-group">
-            <div class="decoration-label">アイコンステッカー</div>
-            <div id="avatarStickerPicker" class="decoration-options" data-field="avatarSticker"></div>
-          </div>
-
-          <div class="decoration-group">
-            <div class="decoration-label">名前のフォント</div>
-            <div id="nameFontPicker" class="decoration-options" data-field="nameFont"></div>
-          </div>
-
-          <div class="decoration-group">
-            <div class="decoration-label">ネームタグ</div>
-            <div id="nameTagPicker" class="decoration-options" data-field="nameTag"></div>
-          </div>
-
-          <div class="decoration-group">
-            <div class="decoration-label">メッセージの吹き出し</div>
-            <div id="bubbleStylePicker" class="decoration-options" data-field="bubbleStyle"></div>
-          </div>
-
-          <div class="decoration-group">
-            <div class="decoration-label">プロフィールの背景</div>
-            <div id="profileThemePicker" class="decoration-options" data-field="profileTheme"></div>
-          </div>
-
-        </div>
-
         <div id="profileMessage" class="form-message"></div>
 
         <div class="profile-footer-actions">
@@ -908,8 +892,6 @@
 
       <div class="modal-body profile-body">
 
-        <div id="viewProfileThemeBanner" class="profile-theme-banner"></div>
-
         <div class="profile-avatar-editor">
           <div id="viewProfileAvatar" class="profile-avatar">
             <img id="viewProfileAvatarImage" class="profile-avatar-image hidden" alt="プロフィールアイコン">
@@ -918,8 +900,6 @@
         </div>
 
         <h3 id="viewProfileName" class="view-profile-name"></h3>
-
-        <span id="viewProfileNameTag" class="name-tag hidden"></span>
 
         <p id="viewProfileBio" class="view-profile-bio"></p>
 
