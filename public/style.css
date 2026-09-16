@@ -2317,24 +2317,24 @@ select:focus-visible {
 ================================================== */
 
 body.dark-mode {
-  --bg: #15171d;
+  --bg: #313338;
 
-  --surface: #20232b;
-  --surface-soft: #282c35;
-  --surface-hover: #30343e;
+  --surface: #2b2d31;
+  --surface-soft: #232428;
+  --surface-hover: #35373c;
 
-  --border: #363a45;
-  --border-strong: #444955;
+  --border: #26282c;
+  --border-strong: #1f2023;
 
-  --text: #f1f3f7;
-  --text-soft: #a4a9b5;
-  --text-muted: #7f8591;
+  --text: #f2f3f5;
+  --text-soft: #b5bac1;
+  --text-muted: #949ba4;
 
-  --primary: #8192f5;
-  --primary-dark: #7182e8;
+  --primary: #5865f2;
+  --primary-dark: #4752c4;
 
   --primary-light:
-    rgba(129, 146, 245, .14);
+    rgba(88, 101, 242, .15);
 
   --shadow-xs:
     0 2px 8px rgba(0, 0, 0, .16);
@@ -6840,271 +6840,128 @@ body.gray-mode .message-actions {
   flex-wrap: nowrap;
 }
 
+
 /* =========================================================
-   ★ デコレーション機能
+   ★ メンバー一覧パネル（右サイドバー）
 ========================================================= */
 
-/* ---------------------------------------------------------
-   アイコン枠
---------------------------------------------------------- */
+.member-list-panel {
+  flex: 0 0 240px;
+  width: 240px;
 
-.avatar-frame-gold {
-  box-shadow: 0 0 0 3px #f5c518, 0 0 10px rgba(245,197,24,.5);
-}
-
-.avatar-frame-silver {
-  box-shadow: 0 0 0 3px #c7cdd6, 0 0 8px rgba(199,205,214,.5);
-}
-
-.avatar-frame-neon {
-  box-shadow: 0 0 0 3px #b14bff, 0 0 12px rgba(177,75,255,.65);
-}
-
-.avatar-frame-dashed {
-  outline: 2px dashed var(--primary);
-  outline-offset: 2px;
-}
-
-.avatar-frame-sparkle {
-  box-shadow: 0 0 0 3px #ffd6f5, 0 0 14px rgba(255,140,220,.6);
-  position: relative;
-}
-
-.avatar-frame-sparkle::after {
-  content: "✨";
-  position: absolute;
-  top: -6px;
-  left: -6px;
-  font-size: 12px;
-}
-
-.avatar-frame-fire {
-  box-shadow: 0 0 0 3px #ff7a45, 0 0 14px rgba(255,90,0,.6);
-}
-
-/* ---------------------------------------------------------
-   アイコンステッカー
---------------------------------------------------------- */
-
-.avatar-sticker {
-  position: absolute;
-  bottom: -3px;
-  right: -3px;
-  font-size: 14px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 2px rgba(0,0,0,.3));
-  pointer-events: none;
-}
-
-.user-avatar .avatar-sticker {
-  font-size: 15px;
-}
-
-/* ---------------------------------------------------------
-   名前のフォント
---------------------------------------------------------- */
-
-.name-font-jagged {
-  font-family: "Impact", "Arial Black", sans-serif;
-  letter-spacing: .5px;
-  transform: skew(-4deg);
-  display: inline-block;
-}
-
-.name-font-wavy {
-  display: inline-block;
-  animation: nameWave 2.4s ease-in-out infinite;
-}
-
-@keyframes nameWave {
-  0%, 100% { transform: translateY(0); }
-  25% { transform: translateY(-2px) rotate(-1deg); }
-  75% { transform: translateY(1px) rotate(1deg); }
-}
-
-.name-font-bold-italic {
-  font-weight: 900;
-  font-style: italic;
-}
-
-.name-font-rounded {
-  font-family: "Comic Sans MS", "Rounded Mplus 1c", sans-serif;
-  font-weight: 800;
-}
-
-.name-font-gothic {
-  font-family: "Times New Roman", serif;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  font-weight: 700;
-}
-
-.name-font-retro {
-  font-family: "Courier New", monospace;
-  letter-spacing: .5px;
-  font-weight: 800;
-}
-
-/* ---------------------------------------------------------
-   ネームタグ
---------------------------------------------------------- */
-
-.name-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--primary-light);
-  color: var(--primary);
-  font-size: 10px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-/* ---------------------------------------------------------
-   メッセージの吹き出しスタイル（自分・他人問わず送信者の設定を反映）
---------------------------------------------------------- */
-
-.bubble-style-round {
-  padding: 8px 14px;
-  background: var(--ui-other, rgba(0,0,0,.035));
-  border-radius: 18px;
-}
-
-.bubble-style-handwritten {
-  padding: 8px 14px;
-  background: var(--ui-other, rgba(0,0,0,.035));
-  border-radius: 255px 15px 225px 15px / 15px 225px 15px 255px;
-  border: 1px dashed var(--border);
-}
-
-.bubble-style-sharp {
-  padding: 8px 14px;
-  background: var(--ui-other, rgba(0,0,0,.035));
-  border-radius: 2px;
-  border-left: 3px solid var(--primary);
-}
-
-.bubble-style-cloud {
-  padding: 10px 16px;
-  background: var(--ui-other, rgba(0,0,0,.035));
-  border-radius: 22px;
-  box-shadow:
-    inset 0 0 0 1px var(--border);
-}
-
-.bubble-style-ribbon {
-  padding: 8px 14px;
-  background: var(--ui-other, rgba(0,0,0,.035));
-  border-radius: 6px 16px 6px 16px;
-  position: relative;
-}
-
-.bubble-style-ribbon::before {
-  content: "🎀";
-  position: absolute;
-  top: -8px;
-  left: -6px;
-  font-size: 12px;
-}
-
-/* ---------------------------------------------------------
-   プロフィールの背景テーマ
---------------------------------------------------------- */
-
-.profile-theme-banner {
-  height: 0;
-  border-radius: 12px 12px 0 0;
-  margin: -20px -20px 16px;
-  transition: height .15s ease;
-}
-
-.profile-theme-sunset {
-  height: 64px;
-  background: linear-gradient(135deg, #ff9966, #ff5e62);
-}
-
-.profile-theme-ocean {
-  height: 64px;
-  background: linear-gradient(135deg, #2193b0, #6dd5ed);
-}
-
-.profile-theme-forest {
-  height: 64px;
-  background: linear-gradient(135deg, #56ab2f, #a8e063);
-}
-
-.profile-theme-lavender {
-  height: 64px;
-  background: linear-gradient(135deg, #a18cd1, #fbc2eb);
-}
-
-.profile-theme-midnight {
-  height: 64px;
-  background: linear-gradient(135deg, #232526, #414345);
-}
-
-/* ---------------------------------------------------------
-   デコレーション選択UI（プロフィール編集画面）
---------------------------------------------------------- */
-
-.decoration-section {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  margin: 16px 0;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
+  gap: 4px;
 
-.decoration-group {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
+  padding: 16px 10px;
+  overflow-y: auto;
 
-.decoration-label {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--text-soft);
-}
-
-.decoration-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.decoration-option {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-
-  padding: 6px 10px;
-
-  border: 1px solid var(--border);
-  border-radius: 9px;
   background: var(--surface);
+  border-left: 1px solid var(--border);
+}
 
-  color: var(--text-soft);
+.member-list-header {
+  padding: 0 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.member-list-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.member-list-group-title {
+  padding: 4px 8px;
+  color: var(--text-muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+
+.member-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 6px 8px;
+  border-radius: 8px;
   cursor: pointer;
 
-  transition: background .15s ease, border-color .15s ease, color .15s ease;
+  transition: background .12s ease;
 }
 
-.decoration-option:hover {
-  background: var(--primary-light);
+.member-list-item:hover {
+  background: var(--surface-hover);
 }
 
-.decoration-option.active {
-  border-color: var(--primary);
-  background: var(--primary-light);
+.member-list-avatar {
+  position: relative;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  overflow: hidden;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  background: linear-gradient(135deg, var(--primary-light), #e5e8ff);
   color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
 }
 
-.decoration-preview {
-  font-size: 14px;
-  line-height: 1;
+.member-list-avatar.offline {
+  opacity: .5;
+}
+
+.member-status-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+}
+
+.member-status-dot.online {
+  background: #23a55a;
+}
+
+.member-status-dot.offline {
+  background: var(--text-muted);
+}
+
+.member-list-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .member-list-panel {
+    display: none;
+  }
+}
+
+/* ---------------------------------------------------------
+   入力中インジケーター
+--------------------------------------------------------- */
+
+.typing-indicator {
+  padding: 0 16px 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-style: italic;
 }
