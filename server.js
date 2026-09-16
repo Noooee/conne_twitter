@@ -204,38 +204,6 @@ async function initDatabase() {
     ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''
   `);
 
-  // デコレーション機能（アイコン枠・ステッカー・名前フォント・
-  // ネームタグ・吹き出しスタイル・プロフィール背景）
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS avatar_frame TEXT NOT NULL DEFAULT 'none'
-  `);
-
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS avatar_sticker TEXT NOT NULL DEFAULT ''
-  `);
-
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS name_font TEXT NOT NULL DEFAULT 'default'
-  `);
-
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS name_tag TEXT NOT NULL DEFAULT ''
-  `);
-
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS bubble_style TEXT NOT NULL DEFAULT 'default'
-  `);
-
-  await pool.query(`
-    ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS profile_theme TEXT NOT NULL DEFAULT 'default'
-  `);
-
   // ==================================================
   // Rooms
   // ==================================================
@@ -661,34 +629,6 @@ function hashToken(token) {
 }
 
 // ==================================================
-// デコレーション機能のプリセット定義
-// ==================================================
-
-const AVATAR_FRAMES = [
-  "none", "gold", "silver", "neon", "dashed", "sparkle", "fire"
-];
-
-const AVATAR_STICKERS = [
-  "", "😎", "🔥", "🌸", "⭐", "👑", "🎧", "🍀", "💎"
-];
-
-const NAME_FONTS = [
-  "default", "jagged", "wavy", "bold-italic", "rounded", "gothic", "retro"
-];
-
-const NAME_TAGS = [
-  "", "クール😎", "熱血🔥", "のんびり🌸", "天才⭐", "ボス👑", "ゲーマー🎧", "ラッキー🍀", "VIP💎"
-];
-
-const BUBBLE_STYLES = [
-  "default", "round", "handwritten", "sharp", "cloud", "ribbon"
-];
-
-const PROFILE_THEMES = [
-  "default", "sunset", "ocean", "forest", "lavender", "midnight"
-];
-
-// ==================================================
 // 画像バリデーション（アイコン・チャット添付共通）
 // ==================================================
 
@@ -729,13 +669,7 @@ function sanitizeUser(user) {
     email: user.email,
     name: user.name,
     avatar: user.avatar || null,
-    bio: user.bio || "",
-    avatarFrame: user.avatar_frame || "none",
-    avatarSticker: user.avatar_sticker || "",
-    nameFont: user.name_font || "default",
-    nameTag: user.name_tag || "",
-    bubbleStyle: user.bubble_style || "default",
-    profileTheme: user.profile_theme || "default"
+    bio: user.bio || ""
   };
 
 }
@@ -782,16 +716,6 @@ function formatMessage(row) {
     username: row.username,
 
     avatar: row.avatar || null,
-
-    avatarFrame: row.avatar_frame || "none",
-
-    avatarSticker: row.avatar_sticker || "",
-
-    nameFont: row.name_font || "default",
-
-    nameTag: row.name_tag || "",
-
-    bubbleStyle: row.bubble_style || "default",
 
     text: row.text,
 
@@ -866,13 +790,7 @@ app.get(
             email,
             name,
             avatar,
-            bio,
-            avatar_frame,
-            avatar_sticker,
-            name_font,
-            name_tag,
-            bubble_style,
-            profile_theme
+            bio
           FROM users
           WHERE id = $1
           `,
@@ -949,36 +867,6 @@ app.put(
           ? req.body.avatar
           : undefined;
 
-      const avatarFrame =
-        req.body?.avatarFrame !== undefined
-          ? String(req.body.avatarFrame)
-          : undefined;
-
-      const avatarSticker =
-        req.body?.avatarSticker !== undefined
-          ? String(req.body.avatarSticker)
-          : undefined;
-
-      const nameFont =
-        req.body?.nameFont !== undefined
-          ? String(req.body.nameFont)
-          : undefined;
-
-      const nameTag =
-        req.body?.nameTag !== undefined
-          ? String(req.body.nameTag)
-          : undefined;
-
-      const bubbleStyle =
-        req.body?.bubbleStyle !== undefined
-          ? String(req.body.bubbleStyle)
-          : undefined;
-
-      const profileTheme =
-        req.body?.profileTheme !== undefined
-          ? String(req.body.profileTheme)
-          : undefined;
-
       if (name !== undefined) {
 
         if (!name || name.length > 50) {
@@ -987,30 +875,6 @@ app.put(
           });
         }
 
-      }
-
-      if (avatarFrame !== undefined && !AVATAR_FRAMES.includes(avatarFrame)) {
-        return res.status(400).json({ message: "アイコン枠が正しくありません。" });
-      }
-
-      if (avatarSticker !== undefined && !AVATAR_STICKERS.includes(avatarSticker)) {
-        return res.status(400).json({ message: "ステッカーが正しくありません。" });
-      }
-
-      if (nameFont !== undefined && !NAME_FONTS.includes(nameFont)) {
-        return res.status(400).json({ message: "フォントが正しくありません。" });
-      }
-
-      if (nameTag !== undefined && !NAME_TAGS.includes(nameTag)) {
-        return res.status(400).json({ message: "ネームタグが正しくありません。" });
-      }
-
-      if (bubbleStyle !== undefined && !BUBBLE_STYLES.includes(bubbleStyle)) {
-        return res.status(400).json({ message: "吹き出しスタイルが正しくありません。" });
-      }
-
-      if (profileTheme !== undefined && !PROFILE_THEMES.includes(profileTheme)) {
-        return res.status(400).json({ message: "プロフィールの背景が正しくありません。" });
       }
 
       if (
@@ -1053,36 +917,6 @@ app.put(
         values.push(avatar === null || avatar === "" ? null : avatar);
       }
 
-      if (avatarFrame !== undefined) {
-        fields.push(`avatar_frame = $${index++}`);
-        values.push(avatarFrame);
-      }
-
-      if (avatarSticker !== undefined) {
-        fields.push(`avatar_sticker = $${index++}`);
-        values.push(avatarSticker);
-      }
-
-      if (nameFont !== undefined) {
-        fields.push(`name_font = $${index++}`);
-        values.push(nameFont);
-      }
-
-      if (nameTag !== undefined) {
-        fields.push(`name_tag = $${index++}`);
-        values.push(nameTag);
-      }
-
-      if (bubbleStyle !== undefined) {
-        fields.push(`bubble_style = $${index++}`);
-        values.push(bubbleStyle);
-      }
-
-      if (profileTheme !== undefined) {
-        fields.push(`profile_theme = $${index++}`);
-        values.push(profileTheme);
-      }
-
       if (fields.length === 0) {
         return res.status(400).json({
           message: "更新する項目がありません。"
@@ -1096,7 +930,7 @@ app.put(
         UPDATE users
         SET ${fields.join(", ")}
         WHERE id = $${index}
-        RETURNING id, email, name, avatar, bio, avatar_frame, avatar_sticker, name_font, name_tag, bubble_style, profile_theme
+        RETURNING id, email, name, avatar, bio
         `,
         values
       );
@@ -1344,7 +1178,7 @@ app.get(
 
       const result = await pool.query(
         `
-        SELECT id, name, avatar, bio, avatar_frame, avatar_sticker, name_font, name_tag, bubble_style, profile_theme
+        SELECT id, name, avatar, bio
         FROM users
         WHERE id = $1
         LIMIT 1
@@ -1396,12 +1230,6 @@ app.get(
           name: row.name,
           avatar: row.avatar || null,
           bio: row.bio || "",
-          avatarFrame: row.avatar_frame || "none",
-          avatarSticker: row.avatar_sticker || "",
-          nameFont: row.name_font || "default",
-          nameTag: row.name_tag || "",
-          bubbleStyle: row.bubble_style || "default",
-          profileTheme: row.profile_theme || "default",
           friendStatus,
           friendRequestId
         }
@@ -1957,13 +1785,7 @@ app.post(
             email,
             name,
             avatar,
-            bio,
-            avatar_frame,
-            avatar_sticker,
-            name_font,
-            name_tag,
-            bubble_style,
-            profile_theme
+            bio
           `,
           [
             email,
@@ -2083,13 +1905,7 @@ app.post(
             name,
             password_hash,
             avatar,
-            bio,
-            avatar_frame,
-            avatar_sticker,
-            name_font,
-            name_tag,
-            bubble_style,
-            profile_theme
+            bio
           FROM users
           WHERE name = $1
           LIMIT 1
@@ -2646,6 +2462,32 @@ io.use(
 );
 
 // ==================================================
+// オンライン状態管理
+// ==================================================
+
+// userId -> 接続中のソケット数（同じ人が複数タブを開く場合に対応）
+const onlineUserCounts = new Map();
+
+function markUserOnline(userId) {
+  const id = Number(userId);
+  onlineUserCounts.set(id, (onlineUserCounts.get(id) || 0) + 1);
+}
+
+function markUserOffline(userId) {
+  const id = Number(userId);
+  const count = (onlineUserCounts.get(id) || 0) - 1;
+  if (count <= 0) {
+    onlineUserCounts.delete(id);
+  } else {
+    onlineUserCounts.set(id, count);
+  }
+}
+
+function isUserOnline(userId) {
+  return onlineUserCounts.has(Number(userId));
+}
+
+// ==================================================
 // Socket.IO connection
 // ==================================================
 
@@ -2672,13 +2514,7 @@ io.on(
             email,
             name,
             avatar,
-            bio,
-            avatar_frame,
-            avatar_sticker,
-            name_font,
-            name_tag,
-            bubble_style,
-            profile_theme
+            bio
           FROM users
           WHERE id = $1
           `,
@@ -2720,6 +2556,13 @@ io.on(
       JSON.stringify(user.name),
       user.email
     );
+
+    const wasOffline = !isUserOnline(user.id);
+    markUserOnline(user.id);
+
+    if (wasOffline) {
+      broadcastPresence(user.id, true);
+    }
 
     // ==================================================
     // 初期表示
@@ -2935,11 +2778,6 @@ io.on(
             userId: Number(row.user_id),
             username: row.username,
             avatar: user.avatar || null,
-            avatarFrame: user.avatar_frame || "none",
-            avatarSticker: user.avatar_sticker || "",
-            nameFont: user.name_font || "default",
-            nameTag: user.name_tag || "",
-            bubbleStyle: user.bubble_style || "default",
             text: row.text,
             image: row.image || null,
             createdAt: row.created_at,
@@ -2953,6 +2791,29 @@ io.on(
           console.error("dm message error:", error);
           socket.emit("dm message error", { message: "DMを送信できませんでした。" });
         }
+      }
+    );
+
+    // ==================================================
+    // 入力中インジケーター
+    // ==================================================
+
+    socket.on(
+      "typing",
+      (data) => {
+
+        const room = String(data?.room || "").trim();
+
+        if (!room || !socket.rooms.has(room)) {
+          return;
+        }
+
+        socket.to(room).emit("user typing", {
+          room,
+          userId: Number(user.id),
+          username: user.name
+        });
+
       }
     );
 
@@ -3179,21 +3040,6 @@ io.on(
           message.avatar =
             user.avatar || null;
 
-          message.avatarFrame =
-            user.avatar_frame || "none";
-
-          message.avatarSticker =
-            user.avatar_sticker || "";
-
-          message.nameFont =
-            user.name_font || "default";
-
-          message.nameTag =
-            user.name_tag || "";
-
-          message.bubbleStyle =
-            user.bubble_style || "default";
-
           io
             .to(room)
             .emit(
@@ -3413,6 +3259,11 @@ io.on(
               room.id
             );
 
+            await sendRoomMembers(
+              socket,
+              room.id
+            );
+
             // ==================================================
             // 部屋一覧
             // ==================================================
@@ -3580,6 +3431,11 @@ io.on(
             room.id
           );
 
+          await sendRoomMembers(
+            socket,
+            room.id
+          );
+
           // ==================================================
           // 参加中一覧更新
           // ==================================================
@@ -3699,6 +3555,11 @@ io.on(
           );
 
           await sendPreviousMessages(
+            socket,
+            room.id
+          );
+
+          await sendRoomMembers(
             socket,
             room.id
           );
@@ -4130,21 +3991,6 @@ io.on(
           message.avatar =
             user.avatar || null;
 
-          message.avatarFrame =
-            user.avatar_frame || "none";
-
-          message.avatarSticker =
-            user.avatar_sticker || "";
-
-          message.nameFont =
-            user.name_font || "default";
-
-          message.nameTag =
-            user.name_tag || "";
-
-          message.bubbleStyle =
-            user.bubble_style || "default";
-
           io
             .to(message.room)
             .emit(
@@ -4279,6 +4125,12 @@ io.on(
           reason
         );
 
+        markUserOffline(user.id);
+
+        if (!isUserOnline(user.id)) {
+          broadcastPresence(user.id, false);
+        }
+
       }
     );
 
@@ -4308,6 +4160,11 @@ async function joinCasual(
     );
 
     await sendPreviousMessages(
+      socket,
+      "casual"
+    );
+
+    await sendRoomMembers(
       socket,
       "casual"
     );
@@ -4442,12 +4299,7 @@ async function sendPreviousDMMessages(socket, conversationId) {
         dm.text,
         dm.image,
         dm.created_at,
-        u.avatar AS avatar,
-        u.avatar_frame AS avatar_frame,
-        u.avatar_sticker AS avatar_sticker,
-        u.name_font AS name_font,
-        u.name_tag AS name_tag,
-        u.bubble_style AS bubble_style
+        u.avatar AS avatar
       FROM dm_messages dm
       LEFT JOIN users u ON u.id::text = dm.user_id::text
       WHERE dm.conversation_id = $1
@@ -4463,11 +4315,6 @@ async function sendPreviousDMMessages(socket, conversationId) {
       userId: Number(row.user_id),
       username: row.username,
       avatar: row.avatar || null,
-      avatarFrame: row.avatar_frame || "none",
-      avatarSticker: row.avatar_sticker || "",
-      nameFont: row.name_font || "default",
-      nameTag: row.name_tag || "",
-      bubbleStyle: row.bubble_style || "default",
       text: row.text,
       image: row.image || null,
       createdAt: row.created_at,
@@ -4516,6 +4363,83 @@ function notifyUser(userId, eventName, payload) {
   } catch (error) {
     console.error("notifyUser error:", error);
   }
+}
+
+// ==================================================
+// オンライン状態の変化を全員へ通知
+// ==================================================
+
+function broadcastPresence(userId, online) {
+  try {
+    io.emit("presence update", { userId: Number(userId), online });
+  } catch (error) {
+    console.error("broadcastPresence error:", error);
+  }
+}
+
+// ==================================================
+// 部屋のメンバー一覧を送信
+// （雑談の場合は現在オンラインの全ユーザーを表示）
+// ==================================================
+
+async function sendRoomMembers(socket, room) {
+
+  try {
+
+    let rows;
+
+    if (room === "casual") {
+
+      const onlineIds = Array.from(onlineUserCounts.keys());
+
+      if (onlineIds.length === 0) {
+        socket.emit("room members", []);
+        return;
+      }
+
+      const result = await pool.query(
+        `SELECT id, name, avatar FROM users WHERE id = ANY($1::int[]) ORDER BY name ASC`,
+        [onlineIds]
+      );
+
+      rows = result.rows;
+
+    } else {
+
+      const result = await pool.query(
+        `
+        SELECT u.id, u.name, u.avatar
+        FROM room_members rm
+        INNER JOIN users u ON u.id = rm.user_id
+        WHERE rm.room_id = $1
+        ORDER BY u.name ASC
+        `,
+        [room]
+      );
+
+      rows = result.rows;
+
+    }
+
+    const members = rows.map(row => ({
+      id: Number(row.id),
+      name: row.name,
+      avatar: row.avatar || null,
+      online: isUserOnline(row.id)
+    }));
+
+    members.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    socket.emit("room members", members);
+
+  } catch (error) {
+    console.error("sendRoomMembers error:", error);
+    socket.emit("room members", []);
+  }
+
 }
 
 // ==================================================
@@ -4571,12 +4495,7 @@ async function sendPreviousMessages(
           m.reply_to_text,
           m.edited,
           m.created_at,
-          u.avatar AS avatar,
-          u.avatar_frame AS avatar_frame,
-          u.avatar_sticker AS avatar_sticker,
-          u.name_font AS name_font,
-          u.name_tag AS name_tag,
-          u.bubble_style AS bubble_style
+          u.avatar AS avatar
 
         FROM messages m
         LEFT JOIN users u ON u.id::text = m.user_id::text
