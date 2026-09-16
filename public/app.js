@@ -120,134 +120,6 @@ document.addEventListener("DOMContentLoaded", () => {
   let pendingAvatarDataUrl = undefined;
 
   // ==================================================
-  // デコレーション プリセット定義
-  // ==================================================
-
-  const DECORATION_PRESETS = {
-
-    avatarFrame: [
-      { value: "none", label: "なし", preview: "○" },
-      { value: "gold", label: "ゴールド", preview: "🟡" },
-      { value: "silver", label: "シルバー", preview: "⚪" },
-      { value: "neon", label: "ネオン", preview: "🟣" },
-      { value: "dashed", label: "破線", preview: "⭕" },
-      { value: "sparkle", label: "キラキラ", preview: "✨" },
-      { value: "fire", label: "炎", preview: "🔥" }
-    ],
-
-    avatarSticker: [
-      { value: "", label: "なし", preview: "―" },
-      { value: "😎", label: "クール", preview: "😎" },
-      { value: "🔥", label: "熱血", preview: "🔥" },
-      { value: "🌸", label: "のんびり", preview: "🌸" },
-      { value: "⭐", label: "天才", preview: "⭐" },
-      { value: "👑", label: "ボス", preview: "👑" },
-      { value: "🎧", label: "ゲーマー", preview: "🎧" },
-      { value: "🍀", label: "ラッキー", preview: "🍀" },
-      { value: "💎", label: "VIP", preview: "💎" }
-    ],
-
-    nameFont: [
-      { value: "default", label: "標準", preview: "Aa" },
-      { value: "jagged", label: "ギザギザ", preview: "Aa" },
-      { value: "wavy", label: "ふわふわ", preview: "Aa" },
-      { value: "bold-italic", label: "ボールド斜体", preview: "Aa" },
-      { value: "rounded", label: "丸文字", preview: "Aa" },
-      { value: "gothic", label: "ゴシック風", preview: "Aa" },
-      { value: "retro", label: "レトロ風", preview: "Aa" }
-    ],
-
-    nameTag: [
-      { value: "", label: "なし", preview: "―" },
-      { value: "クール😎", label: "クール😎", preview: "クール😎" },
-      { value: "熱血🔥", label: "熱血🔥", preview: "熱血🔥" },
-      { value: "のんびり🌸", label: "のんびり🌸", preview: "のんびり🌸" },
-      { value: "天才⭐", label: "天才⭐", preview: "天才⭐" },
-      { value: "ボス👑", label: "ボス👑", preview: "ボス👑" },
-      { value: "ゲーマー🎧", label: "ゲーマー🎧", preview: "ゲーマー🎧" },
-      { value: "ラッキー🍀", label: "ラッキー🍀", preview: "ラッキー🍀" },
-      { value: "VIP💎", label: "VIP💎", preview: "VIP💎" }
-    ],
-
-    bubbleStyle: [
-      { value: "default", label: "標準", preview: "▭" },
-      { value: "round", label: "丸っこい", preview: "◯" },
-      { value: "handwritten", label: "手書き風", preview: "〰" },
-      { value: "sharp", label: "シャープ", preview: "◆" },
-      { value: "cloud", label: "もこもこ", preview: "☁" },
-      { value: "ribbon", label: "リボン", preview: "🎀" }
-    ],
-
-    profileTheme: [
-      { value: "default", label: "標準", preview: "⬜" },
-      { value: "sunset", label: "サンセット", preview: "🌇" },
-      { value: "ocean", label: "オーシャン", preview: "🌊" },
-      { value: "forest", label: "フォレスト", preview: "🌲" },
-      { value: "lavender", label: "ラベンダー", preview: "💜" },
-      { value: "midnight", label: "ミッドナイト", preview: "🌌" }
-    ]
-
-  };
-
-  let selectedDecorations = {
-    avatarFrame: "none",
-    avatarSticker: "",
-    nameFont: "default",
-    nameTag: "",
-    bubbleStyle: "default",
-    profileTheme: "default"
-  };
-
-  function renderDecorationPicker(containerEl, field, currentValue) {
-
-    if (!containerEl) return;
-
-    containerEl.innerHTML = "";
-
-    for (const option of DECORATION_PRESETS[field]) {
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "decoration-option";
-      button.classList.toggle("active", option.value === currentValue);
-      button.innerHTML = `<span class="decoration-preview">${option.preview}</span><span class="decoration-option-label">${option.label}</span>`;
-
-      button.addEventListener("click", () => {
-
-        selectedDecorations[field] = option.value;
-
-        containerEl.querySelectorAll(".decoration-option").forEach(el => el.classList.remove("active"));
-        button.classList.add("active");
-
-      });
-
-      containerEl.appendChild(button);
-
-    }
-
-  }
-
-  function renderAllDecorationPickers(user) {
-
-    selectedDecorations = {
-      avatarFrame: user?.avatarFrame || "none",
-      avatarSticker: user?.avatarSticker || "",
-      nameFont: user?.nameFont || "default",
-      nameTag: user?.nameTag || "",
-      bubbleStyle: user?.bubbleStyle || "default",
-      profileTheme: user?.profileTheme || "default"
-    };
-
-    renderDecorationPicker(document.getElementById("avatarFramePicker"), "avatarFrame", selectedDecorations.avatarFrame);
-    renderDecorationPicker(document.getElementById("avatarStickerPicker"), "avatarSticker", selectedDecorations.avatarSticker);
-    renderDecorationPicker(document.getElementById("nameFontPicker"), "nameFont", selectedDecorations.nameFont);
-    renderDecorationPicker(document.getElementById("nameTagPicker"), "nameTag", selectedDecorations.nameTag);
-    renderDecorationPicker(document.getElementById("bubbleStylePicker"), "bubbleStyle", selectedDecorations.bubbleStyle);
-    renderDecorationPicker(document.getElementById("profileThemePicker"), "profileTheme", selectedDecorations.profileTheme);
-
-  }
-
-  // ==================================================
   // View Profile Modal（他ユーザーのプロフィール表示）
   // ==================================================
 
@@ -567,6 +439,33 @@ document.addEventListener("DOMContentLoaded", () => {
       "messageInput"
     );
 
+  const typingIndicator =
+    document.getElementById("typingIndicator");
+
+  // ==================================================
+  // メンバー一覧
+  // ==================================================
+
+  const memberListOnlineItems =
+    document.getElementById("memberListOnlineItems");
+
+  const memberListOfflineItems =
+    document.getElementById("memberListOfflineItems");
+
+  const memberListOnlineCount =
+    document.getElementById("memberListOnlineCount");
+
+  const memberListOfflineCount =
+    document.getElementById("memberListOfflineCount");
+
+  const memberListOffline =
+    document.getElementById("memberListOffline");
+
+  const memberListPanel =
+    document.getElementById("memberListPanel");
+
+  let currentRoomMembers = [];
+
   const imageAttachButton =
     document.getElementById("imageAttachButton");
 
@@ -691,7 +590,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   }
 
-  function avatarInnerHtml(avatarUrl, name, sticker) {
+  function avatarInnerHtml(avatarUrl, name) {
 
     const letter =
       String(name || "U")
@@ -699,23 +598,14 @@ document.addEventListener("DOMContentLoaded", () => {
         .charAt(0)
         .toUpperCase() || "U";
 
-    const stickerHtml =
-      sticker
-        ? `<span class="avatar-sticker">${escapeHtml(sticker)}</span>`
-        : "";
-
     if (avatarUrl) {
 
-      return `<img src="${escapeHtml(avatarUrl)}" alt="" class="avatar-image">${stickerHtml}`;
+      return `<img src="${escapeHtml(avatarUrl)}" alt="" class="avatar-image">`;
 
     }
 
-    return `<span class="avatar-fallback">${escapeHtml(letter)}</span>${stickerHtml}`;
+    return `<span class="avatar-fallback">${escapeHtml(letter)}</span>`;
 
-  }
-
-  function avatarFrameClass(frame) {
-    return frame && frame !== "none" ? `avatar-frame-${frame}` : "";
   }
 
   function formatTime(dateValue) {
@@ -1030,7 +920,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const fallback =
         userAvatarWrapper.querySelector(
-          "span.avatar-fallback, span:not(.user-avatar-image):not(.avatar-sticker)"
+          "span:not(.user-avatar-image)"
         );
 
       if (fallback) {
@@ -1040,37 +930,6 @@ document.addEventListener("DOMContentLoaded", () => {
             .trim()
             .charAt(0)
             .toUpperCase() || "U";
-
-      }
-
-      userAvatarWrapper.className =
-        userAvatarWrapper.className
-          .split(" ")
-          .filter(cls => !cls.startsWith("avatar-frame-"))
-          .join(" ")
-          .trim();
-
-      const frameClass = avatarFrameClass(currentUser.avatarFrame);
-
-      if (frameClass) {
-        userAvatarWrapper.classList.add(frameClass);
-      }
-
-      let stickerEl = userAvatarWrapper.querySelector(".avatar-sticker");
-
-      if (currentUser.avatarSticker) {
-
-        if (!stickerEl) {
-          stickerEl = document.createElement("span");
-          stickerEl.className = "avatar-sticker";
-          userAvatarWrapper.appendChild(stickerEl);
-        }
-
-        stickerEl.textContent = currentUser.avatarSticker;
-
-      } else if (stickerEl) {
-
-        stickerEl.remove();
 
       }
 
@@ -1406,6 +1265,45 @@ document.addEventListener("DOMContentLoaded", () => {
     );
 
     // ==================================================
+    // メンバー一覧・オンライン状態
+    // ==================================================
+
+    socket.on("room members", (members) => {
+      currentRoomMembers = Array.isArray(members) ? members : [];
+      renderMemberList();
+    });
+
+    socket.on("presence update", (data) => {
+      if (!data) return;
+      updateMemberPresence(data.userId, data.online);
+    });
+
+    // ==================================================
+    // 入力中インジケーター
+    // ==================================================
+
+    socket.on("user typing", (data) => {
+
+      if (!data) return;
+      if (String(data.room) !== String(currentRoomId) || currentChatType === "dm") return;
+      if (currentUser && Number(data.userId) === Number(currentUser.id)) return;
+
+      if (typingIndicator) {
+
+        typingIndicator.textContent = `${data.username || "誰か"}さんが入力中...`;
+        typingIndicator.classList.remove("hidden");
+
+        clearTimeout(typingIndicator._hideTimeout);
+
+        typingIndicator._hideTimeout = setTimeout(() => {
+          typingIndicator.classList.add("hidden");
+        }, 3000);
+
+      }
+
+    });
+
+    // ==================================================
     // My DMs
     // ==================================================
 
@@ -1476,6 +1374,9 @@ document.addEventListener("DOMContentLoaded", () => {
       updateCurrentRoomUI();
       clearMessages();
       clearReply();
+
+      currentRoomMembers = [];
+      renderMemberList();
     });
 
     socket.on("dm previous messages", (list) => {
@@ -2165,8 +2066,11 @@ document.addEventListener("DOMContentLoaded", () => {
       casualRoomButton?.classList.remove("active");
       renderJoinedRooms();
       renderDMList();
+      memberListPanel?.classList.add("hidden");
       return;
     }
+
+    memberListPanel?.classList.remove("hidden");
 
     const isCasual = String(currentRoomId) === "casual";
 
@@ -2321,6 +2225,72 @@ document.addEventListener("DOMContentLoaded", () => {
     socket.emit("open dm", { conversationId });
     dmSeenTimestamps[conversationId] = Date.now();
     closeDMsModal();
+  }
+
+  // ==================================================
+  // メンバー一覧
+  // ==================================================
+
+  function renderMemberList() {
+
+    const online = currentRoomMembers.filter(m => m.online);
+    const offline = currentRoomMembers.filter(m => !m.online);
+
+    if (memberListOnlineCount) memberListOnlineCount.textContent = String(online.length);
+    if (memberListOfflineCount) memberListOfflineCount.textContent = String(offline.length);
+
+    memberListOffline?.classList.toggle("hidden", offline.length === 0);
+
+    function renderGroup(container, members) {
+
+      if (!container) return;
+
+      container.innerHTML = "";
+
+      for (const member of members) {
+
+        const row = document.createElement("div");
+        row.className = "member-list-item";
+        row.dataset.userId = String(member.id);
+
+        row.innerHTML = `
+          <span class="member-list-avatar ${member.online ? "" : "offline"}">
+            ${avatarInnerHtml(member.avatar, member.name)}
+            <span class="member-status-dot ${member.online ? "online" : "offline"}"></span>
+          </span>
+          <span class="member-list-name">${escapeHtml(member.name)}</span>
+        `;
+
+        row.addEventListener("click", () => {
+          openUserProfile(member.id, member.name, member.avatar);
+        });
+
+        container.appendChild(row);
+
+      }
+
+    }
+
+    renderGroup(memberListOnlineItems, online);
+    renderGroup(memberListOfflineItems, offline);
+
+  }
+
+  function updateMemberPresence(userId, online) {
+
+    let changed = false;
+
+    for (const member of currentRoomMembers) {
+      if (Number(member.id) === Number(userId)) {
+        member.online = online;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      renderMemberList();
+    }
+
   }
 
   function renderDMList() {
@@ -3210,7 +3180,7 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="message-header">
 
         <span
-          class="message-username name-font-${escapeHtml(message.nameFont || "default")}"
+          class="message-username"
           data-action="view-profile"
           data-user-id="${escapeHtml(String(message.userId))}"
           tabindex="0"
@@ -3220,12 +3190,6 @@ document.addEventListener("DOMContentLoaded", () => {
             username
           )}
         </span>
-
-        ${
-          message.nameTag
-            ? `<span class="name-tag">${escapeHtml(message.nameTag)}</span>`
-            : ""
-        }
 
         <span class="message-time">
           ${formatTime(
@@ -3273,7 +3237,7 @@ document.addEventListener("DOMContentLoaded", () => {
     wrapper.innerHTML = `
 
       <div
-        class="message-avatar ${avatarFrameClass(message.avatarFrame)}"
+        class="message-avatar"
         data-action="view-profile"
         data-user-id="${escapeHtml(String(message.userId))}"
         tabindex="0"
@@ -3284,8 +3248,7 @@ document.addEventListener("DOMContentLoaded", () => {
             ? `<span class="message-hover-time">${formatTime(message.createdAt)}</span>`
             : avatarInnerHtml(
                 message.avatar,
-                username,
-                message.avatarSticker
+                username
               )
         }
       </div>
@@ -3294,7 +3257,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         ${headerHtml}
 
-        <div class="message-bubble bubble-style-${escapeHtml(message.bubbleStyle || "default")}">
+        <div class="message-bubble">
 
           ${replyHtml}
 
@@ -3709,6 +3672,22 @@ document.addEventListener("DOMContentLoaded", () => {
   // Send Message
   // ==================================================
 
+  let lastTypingEmit = 0;
+
+  messageInput?.addEventListener("input", () => {
+
+    if (!socket || !socket.connected) return;
+    if (currentChatType === "dm") return;
+
+    const now = Date.now();
+
+    if (now - lastTypingEmit > 2000) {
+      lastTypingEmit = now;
+      socket.emit("typing", { room: currentRoomId });
+    }
+
+  });
+
   messageForm?.addEventListener(
     "submit",
     (event) => {
@@ -3992,7 +3971,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // アイコン/名前クリックで自己紹介を表示）
   // ==================================================
 
-  function setViewProfilePreview(avatarUrl, name, frame, sticker) {
+  function setViewProfilePreview(avatarUrl, name) {
 
     const letter =
       (name || "U")
@@ -4022,55 +4001,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     }
 
-    const viewProfileAvatarEl = document.getElementById("viewProfileAvatar");
-
-    if (viewProfileAvatarEl) {
-
-      viewProfileAvatarEl.className =
-        viewProfileAvatarEl.className
-          .split(" ")
-          .filter(cls => !cls.startsWith("avatar-frame-"))
-          .join(" ")
-          .trim() || "profile-avatar";
-
-      const frameClass = avatarFrameClass(frame);
-
-      if (frameClass) {
-        viewProfileAvatarEl.classList.add(frameClass);
-      }
-
-      let stickerEl = viewProfileAvatarEl.querySelector(".avatar-sticker");
-
-      if (sticker) {
-
-        if (!stickerEl) {
-          stickerEl = document.createElement("span");
-          stickerEl.className = "avatar-sticker";
-          viewProfileAvatarEl.appendChild(stickerEl);
-        }
-
-        stickerEl.textContent = sticker;
-
-      } else if (stickerEl) {
-
-        stickerEl.remove();
-
-      }
-
-    }
-
-  }
-
-  function setViewProfileTheme(theme) {
-
-    const banner = document.getElementById("viewProfileThemeBanner");
-
-    if (!banner) return;
-
-    banner.className =
-      "profile-theme-banner" +
-      (theme && theme !== "default" ? ` profile-theme-${theme}` : "");
-
   }
 
   function closeViewProfileModal() {
@@ -4099,10 +4029,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (viewProfileBio) viewProfileBio.textContent = "";
 
     setViewProfilePreview(fallbackAvatar || null, fallbackName);
-    setViewProfileTheme("default");
-
-    const nameTagEl = document.getElementById("viewProfileNameTag");
-    nameTagEl?.classList.add("hidden");
 
     editOwnProfileButton?.classList.add("hidden");
     viewProfileFriendButton?.classList.add("hidden");
@@ -4127,19 +4053,7 @@ document.addEventListener("DOMContentLoaded", () => {
               : "自己紹介はまだありません。";
         }
 
-        setViewProfilePreview(data.user.avatar || null, data.user.name, data.user.avatarFrame, data.user.avatarSticker);
-        setViewProfileTheme(data.user.profileTheme);
-
-        if (nameTagEl) {
-
-          if (data.user.nameTag) {
-            nameTagEl.textContent = data.user.nameTag;
-            nameTagEl.classList.remove("hidden");
-          } else {
-            nameTagEl.classList.add("hidden");
-          }
-
-        }
+        setViewProfilePreview(data.user.avatar || null, data.user.name);
 
         renderFriendButton(data.user.friendStatus, data.user.friendRequestId);
 
@@ -4264,8 +4178,6 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     setProfilePreview(currentUser.avatar || null, currentUser.name);
-
-    renderAllDecorationPickers(currentUser);
 
     profileModal.classList.remove("hidden");
 
@@ -4480,16 +4392,7 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
 
-    const payload = {
-      name,
-      bio,
-      avatarFrame: selectedDecorations.avatarFrame,
-      avatarSticker: selectedDecorations.avatarSticker,
-      nameFont: selectedDecorations.nameFont,
-      nameTag: selectedDecorations.nameTag,
-      bubbleStyle: selectedDecorations.bubbleStyle,
-      profileTheme: selectedDecorations.profileTheme
-    };
+    const payload = { name, bio };
 
     if (pendingAvatarDataUrl !== undefined) {
       payload.avatar = pendingAvatarDataUrl;
