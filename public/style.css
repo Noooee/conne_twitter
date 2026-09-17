@@ -6965,3 +6965,99 @@ body.gray-mode .message-actions {
   font-size: 12px;
   font-style: italic;
 }
+
+/* =========================================================
+   ★ チャンネル一覧バー
+========================================================= */
+
+.channel-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.channel-bar-list {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.channel-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  padding: 6px 12px;
+
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+
+.channel-pill:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.channel-pill.active {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.channel-hash {
+  color: var(--text-muted);
+  font-weight: 800;
+}
+
+.channel-pill.active .channel-hash {
+  color: var(--primary);
+}
+
+.channel-add-button {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px dashed var(--border-strong);
+  border-radius: 50%;
+  background: transparent;
+
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+
+  transition: background .15s ease, color .15s ease;
+}
+
+.channel-add-button:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+/* ---------------------------------------------------------
+   メンバー一覧：オーナーバッジ
+--------------------------------------------------------- */
+
+.member-owner-badge {
+  margin-right: 3px;
+  font-size: 11px;
+}
