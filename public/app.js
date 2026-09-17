@@ -464,7 +464,19 @@ document.addEventListener("DOMContentLoaded", () => {
   const memberListPanel =
     document.getElementById("memberListPanel");
 
+  const channelBar =
+    document.getElementById("channelBar");
+
+  const channelBarList =
+    document.getElementById("channelBarList");
+
+  const createChannelButton =
+    document.getElementById("createChannelButton");
+
   let currentRoomMembers = [];
+  let currentRoomOwnerId = null;
+  let currentServerId = null;
+  let currentChannels = [];
 
   const imageAttachButton =
     document.getElementById("imageAttachButton");
@@ -976,6 +988,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         socket.emit("join casual");
 
+      } else if (currentServerId) {
+
+        // 特定のチャンネルを見ていた場合はそのチャンネルを、
+        // そうでなければ部屋の既定チャンネル（部屋自身のID）を開く
+        socket.emit(
+          "open channel",
+          { channelId: currentRoomId }
+        );
+
       } else {
 
         socket.emit(
@@ -1158,6 +1179,12 @@ document.addEventListener("DOMContentLoaded", () => {
         currentRoomId =
           room.id;
 
+        currentServerId =
+          room.id;
+
+        currentChannels = [];
+        renderChannelBar();
+
         addOrUpdateMyRoom(
           room
         );
@@ -1193,6 +1220,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
         currentRoomId =
           room.id;
+
+        currentServerId =
+          room.id;
+
+        currentChannels = [];
+        renderChannelBar();
 
         addOrUpdateMyRoom(
           room
@@ -1230,6 +1263,12 @@ document.addEventListener("DOMContentLoaded", () => {
         currentRoomId =
           room.id;
 
+        currentServerId =
+          room.id;
+
+        currentChannels = [];
+        renderChannelBar();
+
         addOrUpdateMyRoom(
           room
         );
@@ -1259,6 +1298,10 @@ document.addEventListener("DOMContentLoaded", () => {
           ownerId: null
         };
 
+        currentServerId = null;
+        currentChannels = [];
+        renderChannelBar();
+
         updateCurrentRoomUI();
 
       }
@@ -1268,14 +1311,61 @@ document.addEventListener("DOMContentLoaded", () => {
     // メンバー一覧・オンライン状態
     // ==================================================
 
-    socket.on("room members", (members) => {
-      currentRoomMembers = Array.isArray(members) ? members : [];
+    socket.on("room members", (data) => {
+      currentRoomMembers = Array.isArray(data?.members) ? data.members : [];
+      currentRoomOwnerId = data?.ownerId !== undefined && data?.ownerId !== null ? Number(data.ownerId) : null;
       renderMemberList();
     });
 
     socket.on("presence update", (data) => {
       if (!data) return;
       updateMemberPresence(data.userId, data.online);
+    });
+
+    // ==================================================
+    // チャンネル一覧
+    // ==================================================
+
+    socket.on("channels", (data) => {
+
+      if (!data || String(data.roomId) !== String(currentServerId)) return;
+
+      currentChannels = Array.isArray(data.channels) ? data.channels : [];
+      renderChannelBar();
+
+    });
+
+    socket.on("channels updated", (data) => {
+
+      if (!data || String(data.roomId) !== String(currentServerId)) return;
+
+      socket.emit("get channels", { roomId: currentServerId });
+
+    });
+
+    socket.on("channel opened", (data) => {
+
+      if (!data) return;
+
+      currentChatType = "room";
+      currentRoomId = data.id;
+      currentServerId = data.roomId;
+
+      currentRoom = {
+        id: data.roomId,
+        name: data.roomName,
+        inviteCode: currentRoom?.id === data.roomId ? currentRoom.inviteCode : null,
+        ownerId: data.ownerId
+      };
+
+      if (roomName) roomName.textContent = `${data.roomName} / ${data.name}`;
+      if (roomIcon) roomIcon.textContent = "📁";
+
+      casualRoomButton?.classList.remove("active");
+      renderJoinedRooms();
+
+      renderChannelBar();
+
     });
 
     // ==================================================
@@ -1377,6 +1467,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
       currentRoomMembers = [];
       renderMemberList();
+
+      currentServerId = null;
+      currentChannels = [];
+      renderChannelBar();
     });
 
     socket.on("dm previous messages", (list) => {
@@ -2258,7 +2352,10 @@ document.addEventListener("DOMContentLoaded", () => {
             ${avatarInnerHtml(member.avatar, member.name)}
             <span class="member-status-dot ${member.online ? "online" : "offline"}"></span>
           </span>
-          <span class="member-list-name">${escapeHtml(member.name)}</span>
+          <span class="member-list-name">
+            ${Number(member.id) === Number(currentRoomOwnerId) ? '<span class="member-owner-badge" title="サーバーオーナー">👑</span>' : ""}
+            ${escapeHtml(member.name)}
+          </span>
         `;
 
         row.addEventListener("click", () => {
@@ -2292,6 +2389,78 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
   }
+
+  // ==================================================
+  // チャンネル一覧（サーバー内）
+  // ==================================================
+
+  function renderChannelBar() {
+
+    if (!channelBar || !channelBarList) return;
+
+    if (!currentServerId || currentChatType === "dm" || String(currentRoomId) === "casual") {
+      channelBar.classList.add("hidden");
+      return;
+    }
+
+    channelBar.classList.remove("hidden");
+    channelBarList.innerHTML = "";
+
+    for (const channel of currentChannels) {
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "channel-pill";
+
+      if (String(channel.id) === String(currentRoomId)) {
+        button.classList.add("active");
+      }
+
+      button.innerHTML = `<span class="channel-hash">#</span>${escapeHtml(channel.name)}`;
+
+      button.addEventListener("click", () => {
+
+        if (String(channel.id) === String(currentRoomId)) return;
+
+        if (!socket || !socket.connected) return;
+
+        clearMessages();
+        socket.emit("open channel", { channelId: channel.id });
+
+      });
+
+      channelBarList.appendChild(button);
+
+    }
+
+    const isOwner =
+      currentUser &&
+      currentRoom &&
+      Number(currentRoom.ownerId) === Number(currentUser.id);
+
+    createChannelButton?.classList.toggle("hidden", !isOwner);
+
+  }
+
+  createChannelButton?.addEventListener("click", () => {
+
+    if (!currentServerId) return;
+
+    const name = window.prompt("チャンネル名を入力してください（例: general、雑談）");
+
+    if (!name || !name.trim()) return;
+
+    if (!socket || !socket.connected) {
+      alert("サーバーに接続されていません。");
+      return;
+    }
+
+    socket.emit("create channel", {
+      roomId: currentServerId,
+      name: name.trim().slice(0, 50)
+    });
+
+  });
 
   function renderDMList() {
     if (!dmList) return;
