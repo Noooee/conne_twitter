@@ -386,6 +386,46 @@ async function initDatabase() {
   `);
 
   // ==================================================
+  // チャンネル
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS channels (
+      id TEXT PRIMARY KEY,
+
+      room_id TEXT NOT NULL
+        REFERENCES rooms(id)
+        ON DELETE CASCADE,
+
+      name TEXT NOT NULL,
+
+      position INTEGER NOT NULL DEFAULT 0,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    channels_room_idx
+    ON channels(room_id, position)
+  `);
+
+  // 既存の部屋に、デフォルトチャンネル「general」を作成する。
+  // 部屋自身のIDをそのままデフォルトチャンネルのIDとして使うことで、
+  // 既存のメッセージ（messages.room = 部屋ID）を一切移行せずに
+  // そのままデフォルトチャンネルのメッセージとして扱える。
+  await pool.query(`
+    INSERT INTO channels (id, room_id, name, position)
+    SELECT r.id, r.id, 'general', 0
+    FROM rooms r
+    WHERE NOT EXISTS (
+      SELECT 1 FROM channels c WHERE c.room_id = r.id
+    )
+    ON CONFLICT (id) DO NOTHING
+  `);
+
+  // ==================================================
   // Messages
   // ==================================================
 
@@ -3225,6 +3265,19 @@ io.on(
               ]
             );
 
+            // ==================================================
+            // デフォルトチャンネル作成
+            // ==================================================
+
+            await client.query(
+              `
+              INSERT INTO channels (id, room_id, name, position)
+              VALUES ($1, $1, 'general', 0)
+              ON CONFLICT (id) DO NOTHING
+              `,
+              [room.id]
+            );
+
             await client.query(
               "COMMIT"
             );
@@ -3239,6 +3292,10 @@ io.on(
 
             await socket.join(
               room.id
+            );
+
+            await socket.join(
+              `server-${room.id}`
             );
 
             // ==================================================
@@ -3260,6 +3317,11 @@ io.on(
             );
 
             await sendRoomMembers(
+              socket,
+              room.id
+            );
+
+            await sendServerChannels(
               socket,
               room.id
             );
@@ -3421,6 +3483,10 @@ io.on(
             room.id
           );
 
+          await socket.join(
+            `server-${room.id}`
+          );
+
           socket.emit(
             "room joined",
             formatRoom(room)
@@ -3432,6 +3498,11 @@ io.on(
           );
 
           await sendRoomMembers(
+            socket,
+            room.id
+          );
+
+          await sendServerChannels(
             socket,
             room.id
           );
@@ -3549,6 +3620,10 @@ io.on(
             room.id
           );
 
+          await socket.join(
+            `server-${room.id}`
+          );
+
           socket.emit(
             "room opened",
             formatRoom(room)
@@ -3560,6 +3635,11 @@ io.on(
           );
 
           await sendRoomMembers(
+            socket,
+            room.id
+          );
+
+          await sendServerChannels(
             socket,
             room.id
           );
@@ -3578,6 +3658,175 @@ io.on(
                 "部屋を開けませんでした。"
             }
           );
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // チャンネル一覧取得
+    // ==================================================
+
+    socket.on(
+      "get channels",
+      async (data) => {
+
+        const roomId = String(data?.roomId || "").trim();
+
+        if (!roomId) return;
+
+        await sendServerChannels(socket, roomId);
+
+      }
+    );
+
+    // ==================================================
+    // チャンネルを開く
+    // ==================================================
+
+    socket.on(
+      "open channel",
+      async (data) => {
+
+        try {
+
+          const channelId = String(data?.channelId || "").trim();
+
+          if (!channelId) return;
+
+          const result = await pool.query(
+            `
+            SELECT
+              c.id,
+              c.name,
+              c.room_id,
+              r.name AS room_name,
+              r.owner_id
+            FROM channels c
+            INNER JOIN rooms r ON r.id = c.room_id
+            INNER JOIN room_members rm ON rm.room_id = c.room_id
+            WHERE c.id = $1 AND rm.user_id = $2
+            LIMIT 1
+            `,
+            [channelId, user.id]
+          );
+
+          if (result.rows.length === 0) {
+
+            socket.emit("room open error", {
+              message: "このチャンネルには参加していません。"
+            });
+
+            return;
+
+          }
+
+          const channel = result.rows[0];
+
+          leaveCurrentRooms(socket);
+
+          await socket.join(channel.id);
+          await socket.join(`server-${channel.room_id}`);
+
+          socket.emit("channel opened", {
+            id: channel.id,
+            name: channel.name,
+            roomId: channel.room_id,
+            roomName: channel.room_name,
+            ownerId: channel.owner_id !== null ? Number(channel.owner_id) : null
+          });
+
+          await sendPreviousMessages(socket, channel.id);
+          await sendRoomMembers(socket, channel.room_id);
+          await sendServerChannels(socket, channel.room_id);
+
+        } catch (error) {
+
+          console.error("open channel error:", error);
+
+          socket.emit("room open error", {
+            message: "チャンネルを開けませんでした。"
+          });
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // チャンネル作成（サーバーのオーナーのみ）
+    // ==================================================
+
+    socket.on(
+      "create channel",
+      async (data) => {
+
+        try {
+
+          const roomId = String(data?.roomId || "").trim();
+
+          const name =
+            String(data?.name || "").trim().slice(0, 50);
+
+          if (!roomId || !name) {
+
+            socket.emit("create channel error", {
+              message: "チャンネル名を入力してください。"
+            });
+
+            return;
+
+          }
+
+          const roomResult = await pool.query(
+            `SELECT id, owner_id FROM rooms WHERE id = $1 LIMIT 1`,
+            [roomId]
+          );
+
+          if (roomResult.rows.length === 0) {
+            socket.emit("create channel error", { message: "サーバーが見つかりません。" });
+            return;
+          }
+
+          const room = roomResult.rows[0];
+
+          if (
+            room.owner_id === null ||
+            Number(room.owner_id) !== Number(user.id)
+          ) {
+
+            socket.emit("create channel error", {
+              message: "チャンネルを作成できるのはサーバーのオーナーだけです。"
+            });
+
+            return;
+
+          }
+
+          const positionResult = await pool.query(
+            `SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM channels WHERE room_id = $1`,
+            [roomId]
+          );
+
+          const position = Number(positionResult.rows[0].next_position) || 0;
+
+          const channelId = "channel_" + crypto.randomBytes(8).toString("hex");
+
+          await pool.query(
+            `INSERT INTO channels (id, room_id, name, position) VALUES ($1, $2, $3, $4)`,
+            [channelId, roomId, name, position]
+          );
+
+          io.to(`server-${roomId}`).emit("channels updated", { roomId });
+
+        } catch (error) {
+
+          console.error("create channel error:", error);
+
+          socket.emit("create channel error", {
+            message: "チャンネルを作成できませんでした。"
+          });
 
         }
 
@@ -3688,12 +3937,12 @@ io.on(
           }
 
           // ==================================================
-          // その部屋にいるSocketを取得
+          // その部屋（全チャンネル含む）にいるSocketを取得
           // ==================================================
 
           const socketsInRoom =
             io.sockets.adapter.rooms.get(
-              roomId
+              `server-${roomId}`
             );
 
           const targetSockets =
@@ -4387,13 +4636,14 @@ async function sendRoomMembers(socket, room) {
   try {
 
     let rows;
+    let ownerId = null;
 
     if (room === "casual") {
 
       const onlineIds = Array.from(onlineUserCounts.keys());
 
       if (onlineIds.length === 0) {
-        socket.emit("room members", []);
+        socket.emit("room members", { room, ownerId: null, members: [] });
         return;
       }
 
@@ -4405,6 +4655,15 @@ async function sendRoomMembers(socket, room) {
       rows = result.rows;
 
     } else {
+
+      const ownerResult = await pool.query(
+        `SELECT owner_id FROM rooms WHERE id = $1 LIMIT 1`,
+        [room]
+      );
+
+      if (ownerResult.rows.length > 0 && ownerResult.rows[0].owner_id !== null) {
+        ownerId = Number(ownerResult.rows[0].owner_id);
+      }
 
       const result = await pool.query(
         `
@@ -4433,11 +4692,45 @@ async function sendRoomMembers(socket, room) {
       return a.name.localeCompare(b.name);
     });
 
-    socket.emit("room members", members);
+    socket.emit("room members", { room, ownerId, members });
 
   } catch (error) {
     console.error("sendRoomMembers error:", error);
-    socket.emit("room members", []);
+    socket.emit("room members", { room, ownerId: null, members: [] });
+  }
+
+}
+
+// ==================================================
+// サーバー（部屋）のチャンネル一覧を送信
+// ==================================================
+
+async function sendServerChannels(socket, roomId) {
+
+  try {
+
+    const result = await pool.query(
+      `
+      SELECT id, name, position
+      FROM channels
+      WHERE room_id = $1
+      ORDER BY position ASC, created_at ASC
+      `,
+      [roomId]
+    );
+
+    socket.emit("channels", {
+      roomId,
+      channels: result.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        position: row.position
+      }))
+    });
+
+  } catch (error) {
+    console.error("sendServerChannels error:", error);
+    socket.emit("channels", { roomId, channels: [] });
   }
 
 }
