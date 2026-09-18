@@ -230,6 +230,9 @@ document.addEventListener("DOMContentLoaded", () => {
       "inviteCode"
     );
 
+  const inviteLinkButton =
+    document.getElementById("inviteLinkButton");
+
   // ==================================================
   // Create modal
   // ==================================================
@@ -539,6 +542,102 @@ document.addEventListener("DOMContentLoaded", () => {
   let dmSeenTimestamps = {};
   let dmSnapshotInitialized = false;
   let notifications = [];
+
+  // ==================================================
+  // URLルーティング（部屋名でURLが変わるように）
+  // ==================================================
+
+  function buildPathForCurrentView() {
+
+    if (currentChatType === "dm") {
+      return `/dm/${encodeURIComponent(currentRoomId)}`;
+    }
+
+    if (String(currentRoomId) === "casual") {
+      return "/casual";
+    }
+
+    const name =
+      currentRoom && currentRoom.name
+        ? currentRoom.name
+        : currentRoomId;
+
+    return `/${encodeURIComponent(name)}`;
+
+  }
+
+  function updateUrlForCurrentView(replace) {
+
+    try {
+
+      const path = buildPathForCurrentView();
+
+      if (window.location.pathname === path) {
+        return;
+      }
+
+      const method = replace ? "replaceState" : "pushState";
+
+      window.history[method](
+        { chatType: currentChatType, roomId: currentRoomId },
+        "",
+        path
+      );
+
+    } catch (error) {
+      console.error("updateUrlForCurrentView error:", error);
+    }
+
+  }
+
+  function parseRouteFromLocation() {
+
+    const path = window.location.pathname;
+
+    let match = path.match(/^\/dm\/([^/]+)\/?$/);
+
+    if (match) {
+      return { type: "dm", conversationId: decodeURIComponent(match[1]) };
+    }
+
+    if (path === "/casual" || path === "/") {
+      return { type: "casual" };
+    }
+
+    match = path.match(/^\/([^/]+)\/?$/);
+
+    if (match) {
+      return { type: "room-name", name: decodeURIComponent(match[1]) };
+    }
+
+    return null;
+
+  }
+
+  function navigateToRoute(route) {
+
+    if (!route || !socket || !socket.connected) return;
+
+    if (route.type === "dm") {
+
+      openDM(route.conversationId);
+
+    } else if (route.type === "casual") {
+
+      socket.emit("join casual");
+
+    } else if (route.type === "room-name") {
+
+      socket.emit("resolve room path", { name: route.name });
+
+    }
+
+  }
+
+  window.addEventListener("popstate", () => {
+    const route = parseRouteFromLocation();
+    if (route) navigateToRoute(route);
+  });
 
   let currentRoom = {
     id: "casual",
@@ -1008,6 +1107,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     }
 
+    let hasHandledInitialRoute = false;
+
     socket.on(
       "connect",
       () => {
@@ -1029,6 +1130,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // フレンド一覧・リクエストも読み込む
         loadFriends();
+
+        if (!hasHandledInitialRoute) {
+
+          hasHandledInitialRoute = true;
+
+          const initialRoute = parseRouteFromLocation();
+
+          if (initialRoute && initialRoute.type !== "casual") {
+
+            navigateToRoute(initialRoute);
+
+            setTimeout(() => navigateToRoute(initialRoute), 1000);
+
+            return;
+
+          }
+
+        }
 
         // 再接続・ページ更新時に、直前まで見ていた
         // 部屋/DMのメッセージを再取得する
@@ -1191,6 +1310,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         updateCurrentRoomUI();
 
+        updateUrlForCurrentView();
+
         closeCreateModal();
 
       }
@@ -1232,6 +1353,8 @@ document.addEventListener("DOMContentLoaded", () => {
         );
 
         updateCurrentRoomUI();
+
+        updateUrlForCurrentView();
 
         closeJoinModal();
 
@@ -1275,6 +1398,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
         updateCurrentRoomUI();
 
+        updateUrlForCurrentView();
+
       }
     );
 
@@ -1303,6 +1428,8 @@ document.addEventListener("DOMContentLoaded", () => {
         renderChannelBar();
 
         updateCurrentRoomUI();
+
+        updateUrlForCurrentView();
 
       }
     );
@@ -1365,6 +1492,8 @@ document.addEventListener("DOMContentLoaded", () => {
       renderJoinedRooms();
 
       renderChannelBar();
+
+      updateUrlForCurrentView();
 
     });
 
@@ -1471,6 +1600,8 @@ document.addEventListener("DOMContentLoaded", () => {
       currentServerId = null;
       currentChannels = [];
       renderChannelBar();
+
+      updateUrlForCurrentView();
     });
 
     socket.on("dm previous messages", (list) => {
@@ -1729,6 +1860,50 @@ document.addEventListener("DOMContentLoaded", () => {
           data?.message ||
           "部屋を開けませんでした。"
         );
+
+      }
+    );
+
+    // ==================================================
+    // 部屋名URLの解決結果
+    // ==================================================
+
+    socket.on(
+      "room path resolved",
+      (data) => {
+
+        if (!data) return;
+
+        if (!data.found) {
+
+          alert(
+            `「${data.name}」という部屋は見つかりませんでした。`
+          );
+
+          socket.emit("join casual");
+
+          return;
+
+        }
+
+        if (data.member) {
+
+          socket.emit("open my room", { roomId: data.roomId });
+
+          return;
+
+        }
+
+        // 参加していない部屋 → 招待コード入力を促す
+        openJoinModal();
+
+        const description =
+          document.getElementById("joinModalDescription");
+
+        if (description) {
+          description.textContent =
+            `「${data.name}」に参加するには招待コードが必要です。`;
+        }
 
       }
     );
@@ -2925,6 +3100,13 @@ document.addEventListener("DOMContentLoaded", () => {
       "hidden"
     );
 
+    const description =
+      document.getElementById("joinModalDescription");
+
+    if (description) {
+      description.textContent = "招待コードを入力してください。";
+    }
+
     if (joinError) {
 
       joinError.textContent =
@@ -3104,6 +3286,57 @@ document.addEventListener("DOMContentLoaded", () => {
             if (inviteCode) {
 
               inviteCode.textContent =
+                original;
+
+            }
+
+          },
+          1200
+        );
+
+      } catch (error) {
+
+        console.error(
+          "clipboard error:",
+          error
+        );
+
+      }
+
+    }
+  );
+
+  inviteLinkButton?.addEventListener(
+    "click",
+    async () => {
+
+      const name =
+        currentRoom?.name ||
+        currentRoomId;
+
+      if (!name) {
+        return;
+      }
+
+      const url =
+        `${window.location.origin}/${encodeURIComponent(name)}`;
+
+      try {
+
+        await navigator.clipboard.writeText(url);
+
+        const original =
+          inviteLinkButton.textContent;
+
+        inviteLinkButton.textContent =
+          "コピーしました！";
+
+        setTimeout(
+          () => {
+
+            if (inviteLinkButton) {
+
+              inviteLinkButton.textContent =
                 original;
 
             }
