@@ -579,6 +579,62 @@ async function initDatabase() {
   `);
 
   // ==================================================
+  // リアクション
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      id SERIAL PRIMARY KEY,
+
+      message_id BIGINT NOT NULL
+        REFERENCES messages(id)
+        ON DELETE CASCADE,
+
+      user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      emoji TEXT NOT NULL,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      UNIQUE (message_id, user_id, emoji)
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    message_reactions_message_idx
+    ON message_reactions(message_id)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dm_message_reactions (
+      id SERIAL PRIMARY KEY,
+
+      message_id BIGINT NOT NULL
+        REFERENCES dm_messages(id)
+        ON DELETE CASCADE,
+
+      user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      emoji TEXT NOT NULL,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      UNIQUE (message_id, user_id, emoji)
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    dm_message_reactions_message_idx
+    ON dm_message_reactions(message_id)
+  `);
+
+  // ==================================================
   // Password Reset
   // ==================================================
 
@@ -735,7 +791,10 @@ function formatRoom(room) {
         : null,
 
     createdAt:
-      room.created_at || null
+      room.created_at || null,
+
+    lastMessageAt:
+      room.last_message_at || null
   };
 
 }
@@ -774,7 +833,10 @@ function formatMessage(row) {
       row.edited,
 
     createdAt:
-      row.created_at
+      row.created_at,
+
+    reactions:
+      row.reactions || []
   };
 
 }
@@ -2827,6 +2889,7 @@ io.on(
 
           io.to(conversationId).emit("dm message", message);
           await sendMyDMsToUsers(conversationId);
+          await processMentions(text, null, user.id, user.name, true, conversationId);
         } catch (error) {
           console.error("dm message error:", error);
           socket.emit("dm message error", { message: "DMを送信できませんでした。" });
@@ -3086,6 +3149,8 @@ io.on(
               "chat message",
               message
             );
+
+          await processMentions(text, room, user.id, user.name, false);
 
         } catch (error) {
 
@@ -4444,6 +4509,119 @@ io.on(
     );
 
     // ==================================================
+    // リアクション
+    // ==================================================
+
+    const ALLOWED_REACTION_EMOJIS = [
+      "👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"
+    ];
+
+    socket.on(
+      "toggle reaction",
+      async (data) => {
+
+        try {
+
+          const rawId = String(data?.messageId || "").trim();
+          const emoji = String(data?.emoji || "").trim();
+
+          if (!rawId || !ALLOWED_REACTION_EMOJIS.includes(emoji)) {
+            return;
+          }
+
+          const isDm = rawId.startsWith("dm-");
+          const numericId = isDm ? rawId.slice(3) : rawId;
+
+          if (!/^\d+$/.test(numericId)) {
+            return;
+          }
+
+          if (isDm) {
+
+            const msgResult = await pool.query(
+              `SELECT conversation_id FROM dm_messages WHERE id = $1 LIMIT 1`,
+              [numericId]
+            );
+
+            if (msgResult.rows.length === 0) return;
+
+            const conversationId = msgResult.rows[0].conversation_id;
+
+            const access = await pool.query(
+              `
+              SELECT 1 FROM dm_conversations
+              WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
+              `,
+              [conversationId, user.id]
+            );
+
+            if (access.rows.length === 0) return;
+
+            const existing = await pool.query(
+              `SELECT id FROM dm_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+              [numericId, user.id, emoji]
+            );
+
+            if (existing.rows.length > 0) {
+              await pool.query(`DELETE FROM dm_message_reactions WHERE id = $1`, [existing.rows[0].id]);
+            } else {
+              await pool.query(
+                `INSERT INTO dm_message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)`,
+                [numericId, user.id, emoji]
+              );
+            }
+
+            const summary = await getReactionSummary(numericId, true);
+
+            io.to(conversationId).emit("reactions updated", {
+              messageId: rawId,
+              reactions: summary
+            });
+
+          } else {
+
+            const msgResult = await pool.query(
+              `SELECT room FROM messages WHERE id = $1 LIMIT 1`,
+              [numericId]
+            );
+
+            if (msgResult.rows.length === 0) return;
+
+            const room = msgResult.rows[0].room;
+
+            if (!socket.rooms.has(room)) return;
+
+            const existing = await pool.query(
+              `SELECT id FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+              [numericId, user.id, emoji]
+            );
+
+            if (existing.rows.length > 0) {
+              await pool.query(`DELETE FROM message_reactions WHERE id = $1`, [existing.rows[0].id]);
+            } else {
+              await pool.query(
+                `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)`,
+                [numericId, user.id, emoji]
+              );
+            }
+
+            const summary = await getReactionSummary(numericId, false);
+
+            io.to(room).emit("reactions updated", {
+              messageId: numericId,
+              reactions: summary
+            });
+
+          }
+
+        } catch (error) {
+          console.error("toggle reaction error:", error);
+        }
+
+      }
+    );
+
+    // ==================================================
     // 切断
     // ==================================================
 
@@ -4531,12 +4709,20 @@ async function sendMyRooms(
           r.name,
           r.invite_code,
           r.owner_id,
-          r.created_at
+          r.created_at,
+          lm.last_message_at
 
         FROM rooms r
 
         INNER JOIN room_members rm
           ON rm.room_id = r.id
+
+        LEFT JOIN LATERAL (
+          SELECT MAX(m.created_at) AS last_message_at
+          FROM messages m
+          INNER JOIN channels c ON c.room_id = r.id
+          WHERE m.room = c.id
+        ) lm ON TRUE
 
         WHERE rm.user_id = $1
 
@@ -4641,6 +4827,9 @@ async function sendPreviousDMMessages(socket, conversationId) {
       [conversationId]
     );
 
+    const messageIds = result.rows.map(row => row.id);
+    const reactionsMap = await fetchReactionsForMessages(messageIds, true);
+
     socket.emit("dm previous messages", result.rows.map(row => ({
       id: `dm-${row.id}`,
       room: row.conversation_id,
@@ -4651,7 +4840,8 @@ async function sendPreviousDMMessages(socket, conversationId) {
       image: row.image || null,
       createdAt: row.created_at,
       edited: false,
-      isDm: true
+      isDm: true,
+      reactions: reactionsMap.get(String(row.id)) || []
     })));
   } catch (error) {
     console.error("sendPreviousDMMessages error:", error);
@@ -4819,6 +5009,102 @@ async function sendServerChannels(socket, roomId) {
 }
 
 // ==================================================
+// リアクション集計
+// ==================================================
+
+async function fetchReactionsForMessages(messageIds, isDm) {
+
+  const map = new Map();
+
+  if (!messageIds || messageIds.length === 0) {
+    return map;
+  }
+
+  const table = isDm ? "dm_message_reactions" : "message_reactions";
+
+  const result = await pool.query(
+    `
+    SELECT message_id, emoji, array_agg(user_id) AS user_ids
+    FROM ${table}
+    WHERE message_id = ANY($1::bigint[])
+    GROUP BY message_id, emoji
+    ORDER BY MIN(created_at) ASC
+    `,
+    [messageIds]
+  );
+
+  for (const row of result.rows) {
+
+    const key = String(row.message_id);
+
+    if (!map.has(key)) {
+      map.set(key, []);
+    }
+
+    map.get(key).push({
+      emoji: row.emoji,
+      userIds: row.user_ids.map(Number)
+    });
+
+  }
+
+  return map;
+
+}
+
+async function getReactionSummary(messageId, isDm) {
+
+  const map = await fetchReactionsForMessages([messageId], isDm);
+
+  return map.get(String(messageId)) || [];
+
+}
+
+// ==================================================
+// @メンション検出・通知
+// ==================================================
+
+async function processMentions(text, room, senderId, senderName, isDm, conversationId) {
+
+  try {
+
+    const mentionPattern = /@([^\s@]+)/g;
+    const names = new Set();
+    let match;
+
+    while ((match = mentionPattern.exec(text)) !== null) {
+      names.add(match[1]);
+    }
+
+    if (names.size === 0) return;
+
+    const result = await pool.query(
+      `SELECT id, name FROM users WHERE name = ANY($1::text[])`,
+      [Array.from(names)]
+    );
+
+    for (const row of result.rows) {
+
+      const mentionedId = Number(row.id);
+
+      if (mentionedId === Number(senderId)) continue;
+
+      notifyUser(mentionedId, "mention received", {
+        fromName: senderName,
+        room: isDm ? conversationId : room,
+        isDm: Boolean(isDm),
+        text: text.slice(0, 100)
+      });
+
+    }
+
+  } catch (error) {
+    console.error("processMentions error:", error);
+  }
+
+}
+
+// ==================================================
 // 現在の部屋から退出
 // ==================================================
 
@@ -4890,11 +5176,19 @@ async function sendPreviousMessages(
         ]
       );
 
+    const messageIds =
+      result.rows.map(row => row.id);
+
+    const reactionsMap =
+      await fetchReactionsForMessages(messageIds, false);
+
     socket.emit(
       "previous messages",
-      result.rows.map(
-        formatMessage
-      )
+      result.rows.map(row => {
+        const message = formatMessage(row);
+        message.reactions = reactionsMap.get(String(row.id)) || [];
+        return message;
+      })
     );
 
   } catch (error) {
