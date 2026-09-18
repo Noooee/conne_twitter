@@ -540,6 +540,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   let dmListData = [];
   let dmSeenTimestamps = {};
+  let roomSeenTimestamps = {};
+  let roomSnapshotInitialized = false;
   let dmSnapshotInitialized = false;
   let notifications = [];
 
@@ -671,6 +673,117 @@ document.addEventListener("DOMContentLoaded", () => {
   // アイコン画像 / 頭文字フォールバック 共通ヘルパー
   // ==================================================
 
+  function buildReactionsHtml(message) {
+
+    const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+
+    if (reactions.length === 0) return "";
+
+    return reactions.map(reaction => {
+
+      const mine =
+        currentUser &&
+        reaction.userIds.some(id => Number(id) === Number(currentUser.id));
+
+      return `
+        <button
+          type="button"
+          class="reaction-pill ${mine ? "mine" : ""}"
+          data-action="toggle-reaction"
+          data-emoji="${escapeHtml(reaction.emoji)}"
+        >
+          ${escapeHtml(reaction.emoji)} <span class="reaction-count">${reaction.userIds.length}</span>
+        </button>
+      `;
+
+    }).join("");
+
+  }
+
+  const REACTION_EMOJI_CHOICES = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"];
+
+  let reactionPickerEl = null;
+
+  function closeReactionPicker() {
+    reactionPickerEl?.remove();
+    reactionPickerEl = null;
+  }
+
+  function openReactionPicker(anchorEl, messageId) {
+
+    closeReactionPicker();
+
+    const picker = document.createElement("div");
+    picker.className = "reaction-picker";
+
+    for (const emoji of REACTION_EMOJI_CHOICES) {
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "reaction-picker-option";
+      button.textContent = emoji;
+
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleReaction(messageId, emoji);
+        closeReactionPicker();
+      });
+
+      picker.appendChild(button);
+
+    }
+
+    document.body.appendChild(picker);
+
+    const rect = anchorEl.getBoundingClientRect();
+    picker.style.top = `${rect.bottom + window.scrollY + 4}px`;
+    picker.style.left = `${rect.left + window.scrollX}px`;
+
+    reactionPickerEl = picker;
+
+    setTimeout(() => {
+      document.addEventListener("click", closeReactionPicker, { once: true });
+    }, 0);
+
+  }
+
+  function toggleReaction(messageId, emoji) {
+
+    if (!socket || !socket.connected) return;
+
+    socket.emit("toggle reaction", { messageId, emoji });
+
+  }
+
+  function updateMessageReactions(messageId, reactions) {
+
+    if (!messages) return;
+
+    const container = messages.querySelector(
+      `.message-reactions[data-message-id="${CSS.escape(String(messageId))}"]`
+    );
+
+    if (!container) return;
+
+    const fakeMessage = { reactions };
+
+    container.innerHTML =
+      buildReactionsHtml(fakeMessage) +
+      `<button type="button" class="reaction-add-button" data-action="add-reaction" title="リアクションを追加">😊+</button>`;
+
+    container.querySelectorAll('[data-action="toggle-reaction"]').forEach(el => {
+      el.addEventListener("click", () => {
+        toggleReaction(messageId, el.dataset.emoji);
+      });
+    });
+
+    container.querySelector('[data-action="add-reaction"]')?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openReactionPicker(event.currentTarget, messageId);
+    });
+
+  }
+
   function linkifyHtml(text) {
 
     const escaped = escapeHtml(text);
@@ -678,7 +791,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const urlPattern =
       /(https?:\/\/[^\s<]+)/g;
 
-    return escaped.replace(
+    const linked = escaped.replace(
       urlPattern,
       (match) => {
 
@@ -696,6 +809,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
         return `<a href="${url}" target="_blank" rel="noopener noreferrer nofollow">${url}</a>${trailing}`;
 
+      }
+    );
+
+    // @メンションのハイライト（リンク化されたURL部分は避ける）
+    const mentionPattern = /(^|[\s])@([^\s<@]+)/g;
+
+    return linked.replace(
+      mentionPattern,
+      (fullMatch, before, name) => {
+        return `${before}<span class="mention">@${name}</span>`;
       }
     );
 
@@ -1264,11 +1387,38 @@ document.addEventListener("DOMContentLoaded", () => {
           rooms
         );
 
-        setMyRooms(
-          Array.isArray(rooms)
-            ? rooms
-            : []
-        );
+        const roomList =
+          Array.isArray(rooms) ? rooms : [];
+
+        if (!roomSnapshotInitialized) {
+
+          for (const room of roomList) {
+            roomSeenTimestamps[room.id] =
+              room.lastMessageAt ? new Date(room.lastMessageAt).getTime() : 0;
+          }
+
+          roomSnapshotInitialized = true;
+
+        } else {
+
+          for (const room of roomList) {
+
+            const isOpen =
+              currentChatType === "room" &&
+              (String(currentRoomId) === String(room.id) || String(currentServerId) === String(room.id));
+
+            const newTime = room.lastMessageAt ? new Date(room.lastMessageAt).getTime() : 0;
+            const seenTime = roomSeenTimestamps[room.id] || 0;
+
+            if (newTime > seenTime && isOpen) {
+              roomSeenTimestamps[room.id] = newTime;
+            }
+
+          }
+
+        }
+
+        setMyRooms(roomList);
 
       }
     );
@@ -1307,6 +1457,8 @@ document.addEventListener("DOMContentLoaded", () => {
         addOrUpdateMyRoom(
           room
         );
+
+        roomSeenTimestamps[room.id] = Date.now();
 
         updateCurrentRoomUI();
 
@@ -1352,6 +1504,8 @@ document.addEventListener("DOMContentLoaded", () => {
           room
         );
 
+        roomSeenTimestamps[room.id] = Date.now();
+
         updateCurrentRoomUI();
 
         updateUrlForCurrentView();
@@ -1395,6 +1549,8 @@ document.addEventListener("DOMContentLoaded", () => {
         addOrUpdateMyRoom(
           room
         );
+
+        roomSeenTimestamps[room.id] = Date.now();
 
         updateCurrentRoomUI();
 
@@ -1489,6 +1645,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (roomIcon) roomIcon.textContent = "📁";
 
       casualRoomButton?.classList.remove("active");
+      roomSeenTimestamps[data.roomId] = Date.now();
       renderJoinedRooms();
 
       renderChannelBar();
@@ -1708,6 +1865,45 @@ document.addEventListener("DOMContentLoaded", () => {
 
       }
     );
+
+    // ==================================================
+    // リアクション更新
+    // ==================================================
+
+    socket.on("reactions updated", (data) => {
+
+      if (!data) return;
+
+      updateMessageReactions(data.messageId, Array.isArray(data.reactions) ? data.reactions : []);
+
+    });
+
+    // ==================================================
+    // メンション通知
+    // ==================================================
+
+    socket.on("mention received", (data) => {
+
+      if (!data) return;
+
+      addNotification(
+        "mention",
+        `${data.fromName || "誰か"}さんがあなたをメンションしました: ${data.text || ""}`,
+        () => {
+
+          if (data.isDm) {
+            openDM(data.room);
+          } else if (data.room === "casual") {
+            socket.emit("join casual");
+          } else if (data.room) {
+            // 部屋の該当チャンネルを開く（既定チャンネルの場合はそのまま部屋を開く）
+            socket.emit("open channel", { channelId: data.room });
+          }
+
+        }
+      );
+
+    });
 
     // ==================================================
     // Message Deleted
@@ -2129,6 +2325,15 @@ document.addEventListener("DOMContentLoaded", () => {
         <span class="joined-room-name">
           ${escapeHtml(room.name)}
         </span>
+
+        ${
+          (() => {
+            const lastTime = room.lastMessageAt ? new Date(room.lastMessageAt).getTime() : 0;
+            const seenTime = roomSeenTimestamps[room.id] || 0;
+            const isActive = String(room.id) === String(currentRoomId) || String(room.id) === String(currentServerId);
+            return (lastTime > seenTime && !isActive) ? '<span class="unread-dot"></span>' : "";
+          })()
+        }
       `;
 
       main.addEventListener(
@@ -3693,6 +3898,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         </div>
 
+        <div class="message-reactions" data-message-id="${escapeHtml(String(message.id))}">
+          ${buildReactionsHtml(message)}
+          <button type="button" class="reaction-add-button" data-action="add-reaction" title="リアクションを追加">😊+</button>
+        </div>
+
         ${actionsHtml}
 
       </div>
@@ -3732,6 +3942,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         });
 
+      });
+
+    wrapper
+      .querySelectorAll('[data-action="toggle-reaction"]')
+      .forEach(el => {
+
+        el.addEventListener("click", () => {
+          toggleReaction(message.id, el.dataset.emoji);
+        });
+
+      });
+
+    wrapper
+      .querySelector('[data-action="add-reaction"]')
+      ?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openReactionPicker(event.currentTarget, message.id);
       });
 
     wrapper
