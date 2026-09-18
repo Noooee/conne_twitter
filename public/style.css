@@ -7061,3 +7061,132 @@ body.gray-mode .message-actions {
   margin-right: 3px;
   font-size: 11px;
 }
+
+/* =========================================================
+   ★ リアクション
+========================================================= */
+
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  padding: 2px 8px;
+
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-soft);
+
+  font-size: 12px;
+  cursor: pointer;
+
+  transition: background .12s ease, border-color .12s ease;
+}
+
+.reaction-pill:hover {
+  background: var(--primary-light);
+  border-color: var(--primary);
+}
+
+.reaction-pill.mine {
+  background: var(--primary-light);
+  border-color: var(--primary);
+}
+
+.reaction-count {
+  color: var(--text-soft);
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.reaction-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 2px 7px;
+
+  border: 1px dashed var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+
+  opacity: 0;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+
+.message:hover .reaction-add-button {
+  opacity: 1;
+}
+
+.reaction-add-button:hover {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+
+.reaction-picker {
+  position: absolute;
+  z-index: 200;
+
+  display: flex;
+  gap: 4px;
+
+  padding: 6px;
+
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+}
+
+.reaction-picker-option {
+  border: 0;
+  background: transparent;
+  font-size: 18px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background .12s ease, transform .12s ease;
+}
+
+.reaction-picker-option:hover {
+  background: var(--primary-light);
+  transform: scale(1.15);
+}
+
+/* ---------------------------------------------------------
+   @メンション
+--------------------------------------------------------- */
+
+.mention {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------
+   未読ドット
+--------------------------------------------------------- */
+
+.unread-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: #f23f42;
+  flex-shrink: 0;
+}
