@@ -3378,6 +3378,89 @@ io.on(
     );
 
     // ==================================================
+    // 部屋名からURLを解決する（共有リンク用）
+    // ==================================================
+
+    socket.on(
+      "resolve room path",
+      async (data) => {
+
+        try {
+
+          const name = String(data?.name || "").trim();
+
+          if (!name) return;
+
+          // すでに参加している同名の部屋があれば優先する
+          const memberMatch = await pool.query(
+            `
+            SELECT r.id, r.name
+            FROM rooms r
+            INNER JOIN room_members rm ON rm.room_id = r.id
+            WHERE rm.user_id = $1 AND r.name = $2
+            ORDER BY r.created_at DESC
+            LIMIT 1
+            `,
+            [user.id, name]
+          );
+
+          if (memberMatch.rows.length > 0) {
+
+            socket.emit("room path resolved", {
+              name,
+              found: true,
+              member: true,
+              roomId: memberMatch.rows[0].id
+            });
+
+            return;
+
+          }
+
+          const anyMatch = await pool.query(
+            `
+            SELECT id, name
+            FROM rooms
+            WHERE name = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            `,
+            [name]
+          );
+
+          if (anyMatch.rows.length === 0) {
+
+            socket.emit("room path resolved", {
+              name,
+              found: false
+            });
+
+            return;
+
+          }
+
+          socket.emit("room path resolved", {
+            name,
+            found: true,
+            member: false,
+            roomId: anyMatch.rows[0].id
+          });
+
+        } catch (error) {
+
+          console.error("resolve room path error:", error);
+
+          socket.emit("room path resolved", {
+            name: data?.name || "",
+            found: false
+          });
+
+        }
+
+      }
+    );
+
+    // ==================================================
     // 部屋参加
     // ==================================================
 
