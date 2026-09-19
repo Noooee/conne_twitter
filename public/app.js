@@ -5096,6 +5096,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     }
 
+    applyLanguage(language);
+
     const soundEnabled =
       localStorage.getItem("veylo-notification-sound") === "true";
 
@@ -5131,6 +5133,138 @@ document.addEventListener("DOMContentLoaded", () => {
       "gray-mode",
       Boolean(enabled)
     );
+
+  }
+
+  // ==================================================
+  // 多言語対応（UIの主要な文言のみ）
+  // ==================================================
+
+  const TRANSLATIONS = {
+    ja: {
+      tagline: "気軽につながるチャット",
+      login_title: "ログイン",
+      username_label: "ユーザー名",
+      password_label: "パスワード",
+      login_button: "ログイン",
+      forgot_password: "パスワードを忘れた方",
+      show_register: "新規登録",
+      register_title: "新規登録",
+      email_label: "メールアドレス",
+      register_button: "登録する",
+      back_to_login: "ログインに戻る",
+      send_reset_email: "リセットメールを送信",
+      rooms_section: "ルーム",
+      casual: "雑談",
+      create_room: "部屋を作成",
+      join_room: "部屋に参加",
+      friends: "フレンド",
+      direct_messages: "ダイレクトメッセージ",
+      notifications: "通知",
+      settings: "設定",
+      theme: "テーマ",
+      theme_desc: "画面の配色を選べます",
+      theme_light: "☀️ ライト",
+      theme_dark: "🌙 ダーク",
+      theme_gray: "◑ グレー",
+      language: "言語",
+      notification_sound: "通知音",
+      notification_sound_desc: "新しいメッセージが届いたときに音を鳴らします",
+      desktop_notification: "デスクトップ通知",
+      desktop_notification_desc: "他のタブを見ているときに通知を表示します",
+      change_password: "パスワード変更",
+      current_password: "現在のパスワード",
+      new_password: "新しいパスワード（8文字以上）",
+      change_password_button: "パスワードを変更",
+      delete_account: "アカウント削除",
+      delete_account_desc: "アカウントとすべてのメッセージ・部屋・DMが完全に削除されます。この操作は取り消せません。",
+      confirm_password: "確認のためパスワードを入力",
+      delete_account_button: "アカウントを削除する",
+      logout: "ログアウト",
+      close: "閉じる",
+      save: "保存"
+    },
+    en: {
+      tagline: "A casual place to chat",
+      login_title: "Log In",
+      username_label: "Username",
+      password_label: "Password",
+      login_button: "Log In",
+      forgot_password: "Forgot password?",
+      show_register: "Sign Up",
+      register_title: "Sign Up",
+      email_label: "Email address",
+      register_button: "Sign Up",
+      back_to_login: "Back to login",
+      send_reset_email: "Send reset email",
+      rooms_section: "Rooms",
+      casual: "Casual",
+      create_room: "Create Room",
+      join_room: "Join Room",
+      friends: "Friends",
+      direct_messages: "Direct Messages",
+      notifications: "Notifications",
+      settings: "Settings",
+      theme: "Theme",
+      theme_desc: "Choose the app's color scheme",
+      theme_light: "☀️ Light",
+      theme_dark: "🌙 Dark",
+      theme_gray: "◑ Gray",
+      language: "Language",
+      notification_sound: "Notification sound",
+      notification_sound_desc: "Play a sound when a new message arrives",
+      desktop_notification: "Desktop notifications",
+      desktop_notification_desc: "Show a notification when you're on another tab",
+      change_password: "Change Password",
+      current_password: "Current password",
+      new_password: "New password (8+ characters)",
+      change_password_button: "Change Password",
+      delete_account: "Delete Account",
+      delete_account_desc: "Your account and all messages, rooms, and DMs will be permanently deleted. This cannot be undone.",
+      confirm_password: "Enter your password to confirm",
+      delete_account_button: "Delete Account",
+      logout: "Log Out",
+      close: "Close",
+      save: "Save"
+    }
+  };
+
+  function applyLanguage(lang) {
+
+    const dict =
+      TRANSLATIONS[lang] || TRANSLATIONS.ja;
+
+    document.querySelectorAll("[data-i18n]").forEach(el => {
+
+      const key = el.dataset.i18n;
+
+      if (dict[key] !== undefined) {
+        el.textContent = dict[key];
+      }
+
+    });
+
+    document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+
+      const key = el.dataset.i18nPlaceholder;
+
+      if (dict[key] !== undefined) {
+        el.setAttribute("placeholder", dict[key]);
+      }
+
+    });
+
+    document.querySelectorAll("[data-i18n-title]").forEach(el => {
+
+      const key = el.dataset.i18nTitle;
+
+      if (dict[key] !== undefined) {
+        el.setAttribute("title", dict[key]);
+      }
+
+    });
+
+    document.documentElement.lang = lang === "en" ? "en" : "ja";
 
   }
 
@@ -5402,6 +5536,17 @@ document.addEventListener("DOMContentLoaded", () => {
       if (deleteAccountMessage) deleteAccountMessage.textContent = error.message || "削除できませんでした。";
 
     }
+
+  });
+
+  languageSelect?.addEventListener("change", () => {
+
+    localStorage.setItem(
+      "veylo-language",
+      languageSelect.value
+    );
+
+    applyLanguage(languageSelect.value);
 
   });
 
