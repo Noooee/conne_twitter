@@ -31,7 +31,7 @@
 
       <div class="logo-area">
         <h1>Veylo</h1>
-        <p>気軽につながるチャット</p>
+        <p data-i18n="tagline">気軽につながるチャット</p>
       </div>
 
 
@@ -44,13 +44,13 @@
         class="auth-panel"
       >
 
-        <h2>ログイン</h2>
+        <h2 data-i18n="login_title">ログイン</h2>
 
         <form id="loginForm">
 
           <div class="input-group">
 
-            <label for="loginName">
+            <label for="loginName" data-i18n="username_label">
               ユーザー名
             </label>
 
@@ -59,6 +59,7 @@
               type="text"
               autocomplete="username"
               placeholder="ユーザー名"
+              data-i18n-placeholder="username_label"
               required
             >
 
@@ -67,7 +68,7 @@
 
           <div class="input-group">
 
-            <label for="loginPassword">
+            <label for="loginPassword" data-i18n="password_label">
               パスワード
             </label>
 
@@ -76,6 +77,7 @@
               type="password"
               autocomplete="current-password"
               placeholder="パスワード"
+              data-i18n-placeholder="password_label"
               required
             >
 
@@ -91,6 +93,7 @@
           <button
             type="submit"
             class="primary-button"
+            data-i18n="login_button"
           >
             ログイン
           </button>
@@ -102,6 +105,7 @@
           id="forgotPasswordButton"
           type="button"
           class="text-button"
+          data-i18n="forgot_password"
         >
           パスワードを忘れた方
         </button>
@@ -111,6 +115,7 @@
           id="showRegisterButton"
           type="button"
           class="secondary-button"
+          data-i18n="show_register"
         >
           新規登録
         </button>
@@ -127,13 +132,13 @@
         class="auth-panel hidden"
       >
 
-        <h2>新規登録</h2>
+        <h2 data-i18n="register_title">新規登録</h2>
 
         <form id="registerForm">
 
           <div class="input-group">
 
-            <label for="registerEmail">
+            <label for="registerEmail" data-i18n="email_label">
               メールアドレス
             </label>
 
@@ -142,6 +147,7 @@
               type="email"
               autocomplete="email"
               placeholder="メールアドレス"
+              data-i18n-placeholder="email_label"
               required
             >
 
@@ -150,7 +156,7 @@
 
           <div class="input-group">
 
-            <label for="registerName">
+            <label for="registerName" data-i18n="username_label">
               ユーザー名
             </label>
 
@@ -176,6 +182,7 @@
               type="password"
               autocomplete="new-password"
               placeholder="パスワード"
+              data-i18n-placeholder="password_label"
               required
             >
 
@@ -191,6 +198,7 @@
           <button
             type="submit"
             class="primary-button"
+            data-i18n="register_button"
           >
             登録する
           </button>
@@ -202,6 +210,7 @@
           id="showLoginButton"
           type="button"
           class="text-button"
+          data-i18n="back_to_login"
         >
           ログインに戻る
         </button>
@@ -218,13 +227,13 @@
         class="auth-panel hidden"
       >
 
-        <h2>パスワードを忘れた方</h2>
+        <h2 data-i18n="forgot_password">パスワードを忘れた方</h2>
 
         <form id="forgotForm">
 
           <div class="input-group">
 
-            <label for="forgotEmail">
+            <label for="forgotEmail" data-i18n="email_label">
               メールアドレス
             </label>
 
@@ -233,6 +242,7 @@
               type="email"
               autocomplete="email"
               placeholder="メールアドレス"
+              data-i18n-placeholder="email_label"
               required
             >
 
@@ -248,6 +258,7 @@
           <button
             type="submit"
             class="primary-button"
+            data-i18n="send_reset_email"
           >
             リセットメールを送信
           </button>
@@ -259,6 +270,7 @@
           id="backToLoginButton"
           type="button"
           class="text-button"
+          data-i18n="back_to_login"
         >
           ログインに戻る
         </button>
@@ -309,7 +321,7 @@
               id="notificationsButton"
               type="button"
               class="icon-button"
-              title="通知"
+              title="通知" data-i18n-title="notifications"
             >
               🔔
               <span id="notificationsBadge" class="friend-badge notif-badge hidden">0</span>
@@ -319,7 +331,7 @@
               id="settingsButton"
               type="button"
               class="icon-button"
-              title="設定"
+              title="設定" data-i18n-title="settings"
             >
               ⚙
             </button>
@@ -386,7 +398,7 @@
 
           <div class="section-title">
 
-            <span>
+            <span data-i18n="rooms_section">
               ルーム
             </span>
 
@@ -405,7 +417,7 @@
               💬
             </span>
 
-            <span class="room-button-text">
+            <span class="room-button-text" data-i18n="casual">
               雑談
             </span>
 
@@ -424,7 +436,7 @@
               ＋
             </span>
 
-            <span>
+            <span data-i18n="create_room">
               部屋を作成
             </span>
 
@@ -443,7 +455,7 @@
               ↪
             </span>
 
-            <span>
+            <span data-i18n="join_room">
               部屋に参加
             </span>
 
@@ -461,7 +473,7 @@
               type="button"
               class="dm-section-header friends-header-button"
             >
-              <span>フレンド</span>
+              <span data-i18n="friends">フレンド</span>
               <span id="friendRequestBadge" class="friend-badge hidden">0</span>
             </button>
 
@@ -479,7 +491,7 @@
               type="button"
               class="dm-section-header friends-header-button"
             >
-              <span>ダイレクトメッセージ</span>
+              <span data-i18n="direct_messages">ダイレクトメッセージ</span>
               <span id="dmNotifBadge" class="friend-badge notif-badge hidden">0</span>
             </button>
 
@@ -1119,7 +1131,7 @@
 
       <div class="modal-header">
 
-        <h2>
+        <h2 data-i18n="settings">
           設定
         </h2>
 
@@ -1141,7 +1153,7 @@
 
         <div class="settings-group">
 
-          <label for="settingsUsernameInput">
+          <label for="settingsUsernameInput" data-i18n="username_label">
             ユーザー名
           </label>
 
@@ -1158,11 +1170,11 @@
 
         <div class="settings-group">
 
-          <div class="setting-title">
+          <div class="setting-title" data-i18n="theme">
             テーマ
           </div>
 
-          <div class="setting-description">
+          <div class="setting-description" data-i18n="theme_desc">
             画面の配色を選べます
           </div>
 
@@ -1172,6 +1184,7 @@
               type="button"
               class="theme-option"
               data-theme="light"
+              data-i18n="theme_light"
             >
               ☀️ ライト
             </button>
@@ -1180,6 +1193,7 @@
               type="button"
               class="theme-option"
               data-theme="dark"
+              data-i18n="theme_dark"
             >
               🌙 ダーク
             </button>
@@ -1188,6 +1202,7 @@
               type="button"
               class="theme-option"
               data-theme="gray"
+              data-i18n="theme_gray"
             >
               ◑ グレー
             </button>
@@ -1201,7 +1216,7 @@
 
         <div class="settings-group">
 
-          <label for="languageSelect">
+          <label for="languageSelect" data-i18n="language">
             言語
           </label>
 
@@ -1228,11 +1243,11 @@
 
             <div>
 
-              <div class="setting-title">
+              <div class="setting-title" data-i18n="notification_sound">
                 通知音
               </div>
 
-              <div class="setting-description">
+              <div class="setting-description" data-i18n="notification_sound_desc">
                 新しいメッセージが届いたときに音を鳴らします
               </div>
 
@@ -1259,11 +1274,11 @@
 
             <div>
 
-              <div class="setting-title">
+              <div class="setting-title" data-i18n="desktop_notification">
                 デスクトップ通知
               </div>
 
-              <div class="setting-description">
+              <div class="setting-description" data-i18n="desktop_notification_desc">
                 他のタブを見ているときに通知を表示します
               </div>
 
@@ -1286,7 +1301,7 @@
 
         <div class="settings-group">
 
-          <div class="setting-title">
+          <div class="setting-title" data-i18n="change_password">
             パスワード変更
           </div>
 
@@ -1294,6 +1309,7 @@
             id="currentPasswordInput"
             type="password"
             placeholder="現在のパスワード"
+            data-i18n-placeholder="current_password"
             autocomplete="current-password"
           >
 
@@ -1301,6 +1317,7 @@
             id="newPasswordInput"
             type="password"
             placeholder="新しいパスワード（8文字以上）"
+            data-i18n-placeholder="new_password"
             autocomplete="new-password"
           >
 
@@ -1310,6 +1327,7 @@
             id="changePasswordButton"
             type="button"
             class="secondary-button"
+            data-i18n="change_password_button"
           >
             パスワードを変更
           </button>
@@ -1321,11 +1339,11 @@
 
         <div class="settings-group danger-zone">
 
-          <div class="setting-title">
+          <div class="setting-title" data-i18n="delete_account">
             アカウント削除
           </div>
 
-          <div class="setting-description">
+          <div class="setting-description" data-i18n="delete_account_desc">
             アカウントとすべてのメッセージ・部屋・DMが完全に削除されます。この操作は取り消せません。
           </div>
 
@@ -1333,6 +1351,7 @@
             id="deleteAccountPasswordInput"
             type="password"
             placeholder="確認のためパスワードを入力"
+            data-i18n-placeholder="confirm_password"
             autocomplete="current-password"
             class="hidden"
           >
@@ -1343,6 +1362,7 @@
             id="deleteAccountButton"
             type="button"
             class="danger-button"
+            data-i18n="delete_account_button"
           >
             アカウントを削除する
           </button>
@@ -1358,6 +1378,7 @@
           id="logoutButton"
           type="button"
           class="danger-button"
+          data-i18n="logout"
         >
           ログアウト
         </button>
@@ -1368,6 +1389,7 @@
             id="closeSettingsButton"
             type="button"
             class="secondary-button"
+            data-i18n="close"
           >
             閉じる
           </button>
@@ -1376,6 +1398,7 @@
             id="saveSettingsButton"
             type="button"
             class="primary-button"
+            data-i18n="save"
           >
             保存
           </button>
