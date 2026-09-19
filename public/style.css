@@ -9,24 +9,24 @@
      Colors
   ================================= */
 
-  --bg: #f4f6fb;
-  --surface: #ffffff;
-  --surface-soft: #f8f9fd;
-  --surface-hover: #f0f2f8;
+  --bg: #ffffff;
+  --surface: #f2f3f5;
+  --surface-soft: #ebedef;
+  --surface-hover: #e3e5e8;
 
-  --border: #e5e8f0;
-  --border-strong: #d8dce6;
+  --border: #e3e5e8;
+  --border-strong: #d1d3d6;
 
-  --text: #1d2230;
-  --text-soft: #747b8b;
-  --text-muted: #a0a6b3;
+  --text: #060607;
+  --text-soft: #4e5058;
+  --text-muted: #80848e;
 
-  --primary: #667eea;
-  --primary-dark: #5669d8;
+  --primary: #5865f2;
+  --primary-dark: #4752c4;
   --primary-light: #eef0ff;
 
-  --success: #4caf50;
-  --danger: #e05252;
+  --success: #23a55a;
+  --danger: #f23f42;
 
   --shadow-xs:
     0 2px 8px rgba(31, 41, 55, .04);
