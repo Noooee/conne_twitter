@@ -30,6 +30,24 @@ const SESSION_SECRET =
   "veylo-development-secret";
 
 // ==================================================
+// 管理者に設定したいユーザー名をここに書いてください。
+// 例: const ADMIN_USERNAMES = ["のえ", "ゆうと"];
+// 環境変数 ADMIN_USERNAMES（カンマ区切り）でも指定できます。
+// ==================================================
+
+const ADMIN_USERNAMES = [
+  ...(
+    process.env.ADMIN_USERNAMES
+      ? process.env.ADMIN_USERNAMES.split(",").map(name => name.trim())
+      : []
+  ),
+
+  // ↓ ここに管理者にしたい名前を追加してください
+  // "ユーザー名をここに",
+
+].filter(Boolean);
+
+// ==================================================
 // Express
 // ==================================================
 
@@ -217,6 +235,21 @@ async function initDatabase() {
     WHERE id = (SELECT MIN(id) FROM users)
       AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
   `);
+
+  // コード内で指定した名前のユーザーを管理者にする
+  if (ADMIN_USERNAMES.length > 0) {
+
+    await pool.query(
+      `
+      UPDATE users
+      SET is_admin = TRUE
+      WHERE name = ANY($1::text[])
+        AND is_admin = FALSE
+      `,
+      [ADMIN_USERNAMES]
+    );
+
+  }
 
   // ==================================================
   // Rooms
@@ -708,6 +741,11 @@ async function initDatabase() {
 
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE questions
+    ADD COLUMN IF NOT EXISTS is_for_admin BOOLEAN NOT NULL DEFAULT FALSE
   `);
 
   await pool.query(`
@@ -2031,15 +2069,46 @@ app.post(
 
     try {
 
-      const toUserId = Number(req.body?.toUserId);
+      const toAdmin = Boolean(req.body?.toAdmin);
       const question = String(req.body?.question || "").trim().slice(0, 300);
-
-      if (!Number.isInteger(toUserId) || toUserId <= 0) {
-        return res.status(400).json({ message: "宛先が正しくありません。" });
-      }
 
       if (!question) {
         return res.status(400).json({ message: "質問を入力してください。" });
+      }
+
+      if (toAdmin) {
+
+        const admins = await pool.query(
+          `SELECT id FROM users WHERE is_admin = TRUE`
+        );
+
+        if (admins.rows.length === 0) {
+          return res.status(404).json({ message: "管理者が見つかりませんでした。" });
+        }
+
+        for (const admin of admins.rows) {
+
+          const adminId = Number(admin.id);
+
+          if (adminId === Number(req.session.userId)) continue;
+
+          await pool.query(
+            `INSERT INTO questions (to_user_id, from_user_id, question, is_for_admin) VALUES ($1, $2, $3, TRUE)`,
+            [adminId, req.session.userId, question]
+          );
+
+          notifyUser(adminId, "question received");
+
+        }
+
+        return res.json({ message: "運営に質問を送りました。" });
+
+      }
+
+      const toUserId = Number(req.body?.toUserId);
+
+      if (!Number.isInteger(toUserId) || toUserId <= 0) {
+        return res.status(400).json({ message: "宛先が正しくありません。" });
       }
 
       if (toUserId === Number(req.session.userId)) {
@@ -2072,7 +2141,7 @@ app.get(
 
       const result = await pool.query(
         `
-        SELECT id, question, answer, answered_at, created_at
+        SELECT id, question, answer, answered_at, created_at, is_for_admin
         FROM questions
         WHERE to_user_id = $1
         ORDER BY created_at DESC
@@ -2087,7 +2156,8 @@ app.get(
           question: row.question,
           answer: row.answer || null,
           answeredAt: row.answered_at || null,
-          createdAt: row.created_at
+          createdAt: row.created_at,
+          isForAdmin: Boolean(row.is_for_admin)
         }))
       });
 
@@ -2178,7 +2248,7 @@ app.get(
         `
         SELECT id, question, answer, answered_at
         FROM questions
-        WHERE to_user_id = $1 AND answer IS NOT NULL
+        WHERE to_user_id = $1 AND answer IS NOT NULL AND is_for_admin = FALSE
         ORDER BY answered_at DESC
         LIMIT 50
         `,
@@ -5742,7 +5812,7 @@ async function sendPreviousMessages(
 
         WHERE m.room = $1
           AND m.created_at >=
-            NOW() - INTERVAL '24 hours'
+            NOW() - INTERVAL '48 hours'
 
         ORDER BY
           m.created_at ASC
@@ -5799,7 +5869,7 @@ async function cleanupOldMessages() {
         DELETE FROM messages
 
         WHERE created_at <
-          NOW() - INTERVAL '24 hours'
+          NOW() - INTERVAL '48 hours'
         `
       );
 
