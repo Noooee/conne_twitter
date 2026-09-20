@@ -743,13 +743,13 @@
               🖼
             </button>
 
-            <input
+            <textarea
               id="messageInput"
-              type="text"
               autocomplete="off"
-              placeholder="メッセージを入力..." data-i18n-placeholder="message_placeholder"
+              placeholder="メッセージを入力... (Enterで改行、Ctrl+Enterで送信)" data-i18n-placeholder="message_placeholder"
               maxlength="2000"
-            >
+              rows="1"
+            ></textarea>
 
             <button
               type="submit"
