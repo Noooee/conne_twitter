@@ -204,6 +204,20 @@ async function initDatabase() {
     ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''
   `);
 
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+
+  // 管理者が誰もいなければ、一番最初に登録したユーザーを
+  // 自動的に管理者にする
+  await pool.query(`
+    UPDATE users
+    SET is_admin = TRUE
+    WHERE id = (SELECT MIN(id) FROM users)
+      AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
+  `);
+
   // ==================================================
   // Rooms
   // ==================================================
@@ -635,6 +649,74 @@ async function initDatabase() {
   `);
 
   // ==================================================
+  // 通報
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reports (
+      id SERIAL PRIMARY KEY,
+
+      reporter_id INTEGER
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
+      target_user_id INTEGER
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      target_message_id BIGINT,
+
+      target_message_text TEXT,
+
+      reason TEXT NOT NULL,
+
+      detail TEXT,
+
+      status TEXT NOT NULL DEFAULT 'open',
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    reports_status_idx
+    ON reports(status, created_at)
+  `);
+
+  // ==================================================
+  // 質問箱
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS questions (
+      id SERIAL PRIMARY KEY,
+
+      to_user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      from_user_id INTEGER
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
+      question TEXT NOT NULL,
+
+      answer TEXT,
+
+      answered_at TIMESTAMPTZ,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    questions_to_user_idx
+    ON questions(to_user_id, created_at)
+  `);
+
+  // ==================================================
   // Password Reset
   // ==================================================
 
@@ -765,7 +847,8 @@ function sanitizeUser(user) {
     email: user.email,
     name: user.name,
     avatar: user.avatar || null,
-    bio: user.bio || ""
+    bio: user.bio || "",
+    isAdmin: Boolean(user.is_admin)
   };
 
 }
@@ -866,6 +949,32 @@ function requireLogin(
 
 }
 
+async function requireAdmin(req, res, next) {
+
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "ログインしてください。" });
+  }
+
+  try {
+
+    const result = await pool.query(
+      `SELECT is_admin FROM users WHERE id = $1 LIMIT 1`,
+      [req.session.userId]
+    );
+
+    if (result.rows.length === 0 || !result.rows[0].is_admin) {
+      return res.status(403).json({ message: "権限がありません。" });
+    }
+
+    next();
+
+  } catch (error) {
+    console.error("requireAdmin error:", error);
+    return res.status(500).json({ message: "権限を確認できませんでした。" });
+  }
+
+}
+
 // ==================================================
 // /api/me
 // ==================================================
@@ -892,7 +1001,8 @@ app.get(
             email,
             name,
             avatar,
-            bio
+            bio,
+            is_admin
           FROM users
           WHERE id = $1
           `,
@@ -1628,6 +1738,414 @@ app.delete(
 );
 
 // ==================================================
+// 通報
+// ==================================================
+
+app.post(
+  "/api/reports",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const targetUserId =
+        req.body?.targetUserId !== undefined
+          ? Number(req.body.targetUserId)
+          : null;
+
+      const targetMessageId =
+        req.body?.targetMessageId
+          ? String(req.body.targetMessageId).replace(/^dm-/, "")
+          : null;
+
+      const targetMessageText =
+        req.body?.targetMessageText
+          ? String(req.body.targetMessageText).slice(0, 2000)
+          : null;
+
+      const reason =
+        String(req.body?.reason || "").trim();
+
+      const detail =
+        req.body?.detail
+          ? String(req.body.detail).slice(0, 1000)
+          : null;
+
+      if (!reason) {
+        return res.status(400).json({ message: "理由を選択してください。" });
+      }
+
+      if (!targetUserId && !targetMessageId) {
+        return res.status(400).json({ message: "通報対象が指定されていません。" });
+      }
+
+      await pool.query(
+        `
+        INSERT INTO reports (
+          reporter_id, target_user_id, target_message_id,
+          target_message_text, reason, detail
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+        [
+          req.session.userId,
+          targetUserId,
+          targetMessageId && /^\d+$/.test(targetMessageId) ? targetMessageId : null,
+          targetMessageText,
+          reason,
+          detail
+        ]
+      );
+
+      return res.json({ message: "通報を受け付けました。ご協力ありがとうございます。" });
+
+    } catch (error) {
+      console.error("/api/reports error:", error);
+      return res.status(500).json({ message: "通報を送信できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 管理者：通報一覧
+// ==================================================
+
+app.get(
+  "/api/admin/reports",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const result = await pool.query(
+        `
+        SELECT
+          r.id,
+          r.reason,
+          r.detail,
+          r.target_message_id,
+          r.target_message_text,
+          r.status,
+          r.created_at,
+          reporter.name AS reporter_name,
+          target.id AS target_user_id,
+          target.name AS target_user_name
+        FROM reports r
+        LEFT JOIN users reporter ON reporter.id = r.reporter_id
+        LEFT JOIN users target ON target.id = r.target_user_id
+        WHERE r.status = 'open'
+        ORDER BY r.created_at DESC
+        LIMIT 200
+        `
+      );
+
+      return res.json({
+        reports: result.rows.map(row => ({
+          id: row.id,
+          reason: row.reason,
+          detail: row.detail,
+          targetMessageId: row.target_message_id,
+          targetMessageText: row.target_message_text,
+          reporterName: row.reporter_name || "(削除済みユーザー)",
+          targetUserId: row.target_user_id ? Number(row.target_user_id) : null,
+          targetUserName: row.target_user_name || null,
+          createdAt: row.created_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/admin/reports error:", error);
+      return res.status(500).json({ message: "取得できませんでした。" });
+    }
+
+  }
+);
+
+app.post(
+  "/api/admin/reports/:id/resolve",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      await pool.query(
+        `UPDATE reports SET status = 'resolved' WHERE id = $1`,
+        [Number(req.params.id)]
+      );
+
+      return res.json({ message: "対応済みにしました。" });
+
+    } catch (error) {
+      console.error("/api/admin/reports/:id/resolve error:", error);
+      return res.status(500).json({ message: "処理できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 管理者：ユーザー検索・削除
+// ==================================================
+
+app.get(
+  "/api/admin/users/search",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const q = String(req.query.q || "").trim();
+
+      if (!q) {
+        return res.json({ users: [] });
+      }
+
+      const result = await pool.query(
+        `
+        SELECT id, name, email, avatar, is_admin, created_at
+        FROM users
+        WHERE name ILIKE $1
+        ORDER BY name ASC
+        LIMIT 20
+        `,
+        [`%${q}%`]
+      );
+
+      return res.json({
+        users: result.rows.map(row => ({
+          id: Number(row.id),
+          name: row.name,
+          email: row.email,
+          avatar: row.avatar || null,
+          isAdmin: Boolean(row.is_admin),
+          createdAt: row.created_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/admin/users/search error:", error);
+      return res.status(500).json({ message: "検索できませんでした。" });
+    }
+
+  }
+);
+
+app.delete(
+  "/api/admin/users/:id",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const targetId = Number(req.params.id);
+
+      if (targetId === Number(req.session.userId)) {
+        return res.status(400).json({ message: "自分自身は削除できません。" });
+      }
+
+      const result = await pool.query(
+        `DELETE FROM users WHERE id = $1 RETURNING id`,
+        [targetId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "ユーザーが見つかりません。" });
+      }
+
+      return res.json({ message: "ユーザーを削除しました。" });
+
+    } catch (error) {
+      console.error("/api/admin/users/:id error:", error);
+      return res.status(500).json({ message: "削除できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 質問箱
+// ==================================================
+
+app.post(
+  "/api/questions",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const toUserId = Number(req.body?.toUserId);
+      const question = String(req.body?.question || "").trim().slice(0, 300);
+
+      if (!Number.isInteger(toUserId) || toUserId <= 0) {
+        return res.status(400).json({ message: "宛先が正しくありません。" });
+      }
+
+      if (!question) {
+        return res.status(400).json({ message: "質問を入力してください。" });
+      }
+
+      if (toUserId === Number(req.session.userId)) {
+        return res.status(400).json({ message: "自分自身には送れません。" });
+      }
+
+      await pool.query(
+        `INSERT INTO questions (to_user_id, from_user_id, question) VALUES ($1, $2, $3)`,
+        [toUserId, req.session.userId, question]
+      );
+
+      notifyUser(toUserId, "question received");
+
+      return res.json({ message: "質問を送りました。" });
+
+    } catch (error) {
+      console.error("/api/questions error:", error);
+      return res.status(500).json({ message: "質問を送れませんでした。" });
+    }
+
+  }
+);
+
+app.get(
+  "/api/questions/inbox",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const result = await pool.query(
+        `
+        SELECT id, question, answer, answered_at, created_at
+        FROM questions
+        WHERE to_user_id = $1
+        ORDER BY created_at DESC
+        LIMIT 200
+        `,
+        [req.session.userId]
+      );
+
+      return res.json({
+        questions: result.rows.map(row => ({
+          id: row.id,
+          question: row.question,
+          answer: row.answer || null,
+          answeredAt: row.answered_at || null,
+          createdAt: row.created_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/questions/inbox error:", error);
+      return res.status(500).json({ message: "質問箱を取得できませんでした。" });
+    }
+
+  }
+);
+
+app.post(
+  "/api/questions/:id/answer",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const id = Number(req.params.id);
+      const answer = String(req.body?.answer || "").trim().slice(0, 500);
+
+      if (!answer) {
+        return res.status(400).json({ message: "回答を入力してください。" });
+      }
+
+      const result = await pool.query(
+        `
+        UPDATE questions
+        SET answer = $1, answered_at = NOW()
+        WHERE id = $2 AND to_user_id = $3
+        RETURNING id
+        `,
+        [answer, id, req.session.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "質問が見つかりませんでした。" });
+      }
+
+      return res.json({ message: "回答しました。" });
+
+    } catch (error) {
+      console.error("/api/questions/:id/answer error:", error);
+      return res.status(500).json({ message: "回答できませんでした。" });
+    }
+
+  }
+);
+
+app.delete(
+  "/api/questions/:id",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const id = Number(req.params.id);
+
+      const result = await pool.query(
+        `DELETE FROM questions WHERE id = $1 AND to_user_id = $2 RETURNING id`,
+        [id, req.session.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "見つかりませんでした。" });
+      }
+
+      return res.json({ message: "削除しました。" });
+
+    } catch (error) {
+      console.error("/api/questions/:id error:", error);
+      return res.status(500).json({ message: "削除できませんでした。" });
+    }
+
+  }
+);
+
+app.get(
+  "/api/questions/answered/:userId",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const userId = Number(req.params.userId);
+
+      const result = await pool.query(
+        `
+        SELECT id, question, answer, answered_at
+        FROM questions
+        WHERE to_user_id = $1 AND answer IS NOT NULL
+        ORDER BY answered_at DESC
+        LIMIT 50
+        `,
+        [userId]
+      );
+
+      return res.json({
+        questions: result.rows.map(row => ({
+          id: row.id,
+          question: row.question,
+          answer: row.answer,
+          answeredAt: row.answered_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/questions/answered/:userId error:", error);
+      return res.status(500).json({ message: "取得できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
 // ダイレクトメッセージ一覧
 // ==================================================
 
@@ -1887,7 +2405,8 @@ app.post(
             email,
             name,
             avatar,
-            bio
+            bio,
+            is_admin
           `,
           [
             email,
@@ -2007,7 +2526,8 @@ app.post(
             name,
             password_hash,
             avatar,
-            bio
+            bio,
+            is_admin
           FROM users
           WHERE name = $1
           LIMIT 1
@@ -2616,7 +3136,8 @@ io.on(
             email,
             name,
             avatar,
-            bio
+            bio,
+            is_admin
           FROM users
           WHERE id = $1
           `,
