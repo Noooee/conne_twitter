@@ -348,10 +348,10 @@
 
           <div class="notifications-header">
             <span>通知</span>
-            <button id="clearNotificationsButton" type="button" class="notif-clear-button">すべて既読</button>
+            <button id="clearNotificationsButton" type="button" class="notif-clear-button" data-i18n="clear_all">すべて既読</button>
           </div>
 
-          <div id="notificationsEmpty" class="dm-empty">通知はありません</div>
+          <div id="notificationsEmpty" class="dm-empty" data-i18n="no_notifications">通知はありません</div>
 
           <div id="notificationsList" class="notifications-list"></div>
 
@@ -631,7 +631,7 @@
             id="createChannelButton"
             type="button"
             class="channel-add-button hidden"
-            title="チャンネルを作成"
+            title="チャンネルを作成" data-i18n-title="add_channel"
           >
             ＋
           </button>
@@ -747,7 +747,7 @@
               id="messageInput"
               type="text"
               autocomplete="off"
-              placeholder="メッセージを入力..."
+              placeholder="メッセージを入力..." data-i18n-placeholder="message_placeholder"
               maxlength="2000"
             >
 
@@ -771,7 +771,7 @@
 
       <aside id="memberListPanel" class="member-list-panel">
 
-        <div class="member-list-header">メンバー</div>
+        <div class="member-list-header" data-i18n="members_title">メンバー</div>
 
         <div id="memberListOnline" class="member-list-group">
           <div class="member-list-group-title">オンライン ― <span id="memberListOnlineCount">0</span></div>
@@ -824,9 +824,9 @@
       <div class="modal-body">
 
         <div class="friends-tabs">
-          <button type="button" class="friends-tab active" data-tab="friends">フレンド</button>
-          <button type="button" class="friends-tab" data-tab="incoming">受信リクエスト</button>
-          <button type="button" class="friends-tab" data-tab="outgoing">送信済み</button>
+          <button type="button" class="friends-tab active" data-tab="friends" data-i18n="friends_tab_friends">フレンド</button>
+          <button type="button" class="friends-tab" data-tab="incoming" data-i18n="friends_tab_incoming">受信リクエスト</button>
+          <button type="button" class="friends-tab" data-tab="outgoing" data-i18n="friends_tab_outgoing">送信済み</button>
         </div>
 
         <div id="friendsPanelFriends" class="friends-panel">
@@ -865,10 +865,10 @@
           type="button"
           class="secondary-button dm-new-button"
         >
-          ＋ 新しいDMを始める
+          ＋ <span data-i18n="new_dm">新しいDMを始める</span>
         </button>
 
-        <div id="dmListEmpty" class="dm-empty hidden">まだDMはありません</div>
+        <div id="dmListEmpty" class="dm-empty hidden" data-i18n="no_dms">まだDMはありません</div>
         <div id="dmList" class="user-search-results"></div>
 
       </div>
@@ -946,9 +946,133 @@
         <div class="profile-footer-actions">
           <button id="editOwnProfileButton" type="button" class="primary-button hidden">プロフィールを編集</button>
           <button id="viewProfileFriendButton" type="button" class="secondary-button hidden"></button>
+          <button id="viewProfileQuestionButton" type="button" class="secondary-button hidden">💌 <span data-i18n="send_question">質問を送る</span></button>
+          <button id="viewProfileReportButton" type="button" class="secondary-button danger hidden">🚩 <span data-i18n="report_button">通報</span></button>
         </div>
 
         <div id="viewProfileFriendMessage" class="form-message"></div>
+
+        <div id="viewProfileQABoard" class="qa-board hidden">
+          <div class="qa-board-title" data-i18n="qa_board_title">質問箱</div>
+          <div id="viewProfileQAList" class="qa-list"></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================
+       質問を送るモーダル
+  ================================================== -->
+
+  <div id="askQuestionModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 data-i18n="ask_question_title">質問を送る</h2>
+        <button id="closeAskQuestionButton" type="button" class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="modal-description">
+          <span data-i18n="ask_question_desc">この質問は匿名で届きます。相手が回答すると公開されます。</span>
+        </p>
+        <div class="input-group">
+          <label for="questionInput">質問内容</label>
+          <textarea id="questionInput" maxlength="300" rows="4" placeholder="聞きたいことを書いてください" data-i18n-placeholder="question_placeholder"></textarea>
+        </div>
+        <div id="askQuestionMessage" class="form-message"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="sendQuestionButton" type="button" class="primary-button">送信する</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================
+       質問箱（受信トレイ）
+  ================================================== -->
+
+  <div id="questionInboxModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 data-i18n="question_inbox_title">質問箱に届いた質問</h2>
+        <button id="closeQuestionInboxButton" type="button" class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="questionInboxEmpty" class="dm-empty hidden" data-i18n="no_questions">まだ質問は届いていません</div>
+        <div id="questionInboxList" class="qa-inbox-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================
+       通報モーダル
+  ================================================== -->
+
+  <div id="reportModal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 data-i18n="report_title">通報する</h2>
+        <button id="closeReportButton" type="button" class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="input-group">
+          <label for="reportReasonSelect" data-i18n="report_reason_label">理由</label>
+          <select id="reportReasonSelect">
+            <option value="spam" data-i18n="report_reason_spam">スパム・宣伝</option>
+            <option value="harassment" data-i18n="report_reason_harassment">嫌がらせ・誹謗中傷</option>
+            <option value="inappropriate" data-i18n="report_reason_inappropriate">不適切なコンテンツ</option>
+            <option value="impersonation" data-i18n="report_reason_impersonation">なりすまし</option>
+            <option value="other" data-i18n="report_reason_other">その他</option>
+          </select>
+        </div>
+
+        <div class="input-group">
+          <label for="reportDetailInput" data-i18n="report_detail_label">詳細（任意）</label>
+          <textarea id="reportDetailInput" maxlength="500" rows="3" placeholder="詳しい状況があれば教えてください" data-i18n-placeholder="report_detail_placeholder"></textarea>
+        </div>
+
+        <div id="reportMessage" class="form-message"></div>
+
+      </div>
+      <div class="modal-footer">
+        <button id="submitReportButton" type="button" class="primary-button danger" data-i18n="submit_report">通報を送信</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================================================
+       管理者パネル
+  ================================================== -->
+
+  <div id="adminPanelModal" class="modal hidden">
+    <div class="modal-content admin-panel-content">
+      <div class="modal-header">
+        <h2>🛡️ 管理者パネル</h2>
+        <button id="closeAdminPanelButton" type="button" class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="friends-tabs">
+          <button type="button" class="friends-tab active" data-admin-tab="reports">通報一覧</button>
+          <button type="button" class="friends-tab" data-admin-tab="users">ユーザー管理</button>
+        </div>
+
+        <div id="adminPanelReports" class="friends-panel">
+          <div id="adminReportsEmpty" class="dm-empty hidden">未対応の通報はありません</div>
+          <div id="adminReportsList" class="admin-list"></div>
+        </div>
+
+        <div id="adminPanelUsers" class="friends-panel hidden">
+
+          <div class="input-group">
+            <label for="adminUserSearchInput">ユーザー名で検索</label>
+            <input id="adminUserSearchInput" type="text" maxlength="50" autocomplete="off" placeholder="ユーザー名を入力">
+          </div>
+
+          <div id="adminUsersList" class="admin-list"></div>
+
+        </div>
 
       </div>
     </div>
@@ -1293,6 +1417,52 @@
             </button>
 
           </div>
+
+        </div>
+
+
+        <!-- 質問箱 -->
+
+        <div class="settings-group">
+
+          <div class="setting-title" data-i18n="qa_board_title">
+            質問箱
+          </div>
+
+          <div class="setting-description">
+            届いた質問を確認して回答できます
+          </div>
+
+          <button
+            id="openQuestionInboxButton"
+            type="button"
+            class="secondary-button"
+          >
+            質問箱を見る
+          </button>
+
+        </div>
+
+
+        <!-- 管理者パネル（管理者のみ表示） -->
+
+        <div id="adminSettingsGroup" class="settings-group hidden">
+
+          <div class="setting-title">
+            🛡️ 管理者パネル
+          </div>
+
+          <div class="setting-description">
+            通報の確認やユーザー管理ができます
+          </div>
+
+          <button
+            id="openAdminPanelButton"
+            type="button"
+            class="secondary-button"
+          >
+            管理者パネルを開く
+          </button>
 
         </div>
 
