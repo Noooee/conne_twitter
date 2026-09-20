@@ -390,6 +390,11 @@ document.addEventListener("DOMContentLoaded", () => {
   const sendQuestionButton =
     document.getElementById("sendQuestionButton");
 
+  const askAdminButton =
+    document.getElementById("askAdminButton");
+
+  let askQuestionTarget = { toAdmin: false };
+
   const questionInboxModal =
     document.getElementById("questionInboxModal");
 
@@ -4506,6 +4511,18 @@ document.addEventListener("DOMContentLoaded", () => {
 
   });
 
+  function normalizeMessageText(raw) {
+
+    return String(raw || "")
+      .replace(/\t/g, "  ")
+      .split("\n")
+      .map(line => line.replace(/^[ \u3000]+/, "").replace(/[ \u3000]+$/, ""))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+
+  }
+
   messageForm?.addEventListener(
     "submit",
     (event) => {
@@ -4513,10 +4530,10 @@ document.addEventListener("DOMContentLoaded", () => {
       event.preventDefault();
 
       const text =
-        String(
+        normalizeMessageText(
           messageInput?.value ||
           ""
-        ).trim();
+        );
 
       if (!text && !pendingImageDataUrl) {
         return;
@@ -5005,10 +5022,20 @@ document.addEventListener("DOMContentLoaded", () => {
   // 質問箱：質問を送る
   // ==================================================
 
-  function openAskQuestionModal() {
+  function openAskQuestionModal(target) {
     if (!askQuestionModal) return;
+    askQuestionTarget = target || { toAdmin: false };
     if (questionInput) questionInput.value = "";
     if (askQuestionMessage) askQuestionMessage.textContent = "";
+
+    const description = askQuestionModal.querySelector(".modal-description");
+    if (description) {
+      description.textContent =
+        askQuestionTarget.toAdmin
+          ? "運営（管理者）に質問を送ります。管理者が確認して回答します。"
+          : "この質問は匿名で届きます。相手が回答すると公開されます。";
+    }
+
     askQuestionModal.classList.remove("hidden");
   }
 
@@ -5018,7 +5045,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   viewProfileQuestionButton?.addEventListener("click", () => {
     closeViewProfileModal();
-    openAskQuestionModal();
+    openAskQuestionModal({ toAdmin: false, toUserId: viewedProfileUserId });
+  });
+
+  askAdminButton?.addEventListener("click", () => {
+    closeSettings();
+    openAskQuestionModal({ toAdmin: true });
   });
 
   closeAskQuestionButton?.addEventListener("click", closeAskQuestionModal);
@@ -5038,9 +5070,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     try {
 
+      const payload =
+        askQuestionTarget.toAdmin
+          ? { toAdmin: true, question }
+          : { toUserId: askQuestionTarget.toUserId, question };
+
       await api("/api/questions", {
         method: "POST",
-        body: JSON.stringify({ toUserId: viewedProfileUserId, question })
+        body: JSON.stringify(payload)
       });
 
       if (askQuestionMessage) askQuestionMessage.textContent = "送信しました！";
@@ -5093,14 +5130,14 @@ document.addEventListener("DOMContentLoaded", () => {
         if (item.answer) {
 
           row.innerHTML = `
-            <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
+            <div class="qa-question">${item.isForAdmin ? "💬 [運営宛て] " : "💌 "}${escapeHtml(item.question)}</div>
             <div class="qa-answer">↳ ${escapeHtml(item.answer)}</div>
           `;
 
         } else {
 
           row.innerHTML = `
-            <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
+            <div class="qa-question">${item.isForAdmin ? "💬 [運営宛て] " : "💌 "}${escapeHtml(item.question)}</div>
             <textarea class="qa-answer-input" placeholder="回答を書く..." maxlength="500"></textarea>
             <div class="qa-inbox-actions">
               <button type="button" class="secondary-button qa-skip-button">削除</button>
