@@ -1,1432 +1,5206 @@
 "use strict";
 
 // ==================================================
-// Veylo App.js
+// コンネついーと Server
 // ==================================================
 
-document.addEventListener("DOMContentLoaded", () => {
+const express = require("express");
+const http = require("http");
+const path = require("path");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const session = require("express-session");
+const pgSession = require("connect-pg-simple")(session);
+const { Pool } = require("pg");
+const { Server } = require("socket.io");
+const nodemailer = require("nodemailer");
+
+// ==================================================
+// 環境変数
+// ==================================================
+
+const PORT =
+  process.env.PORT || 10000;
+
+const DATABASE_URL =
+  process.env.DATABASE_URL;
+
+const SESSION_SECRET =
+  process.env.SESSION_SECRET ||
+  "veylo-development-secret";
+
+// ==================================================
+// Express
+// ==================================================
+
+const app = express();
+
+if (
+  process.env.NODE_ENV === "production"
+) {
+  app.set("trust proxy", 1);
+}
+
+const server =
+  http.createServer(app);
+
+// ==================================================
+// PostgreSQL
+// ==================================================
+
+if (!DATABASE_URL) {
+  console.error(
+    "DATABASE_URL が設定されていません。"
+  );
+
+  process.exit(1);
+}
+
+const pool =
+  new Pool({
+    connectionString:
+      DATABASE_URL,
+
+    ssl:
+      process.env.NODE_ENV === "production"
+        ? {
+            rejectUnauthorized: false
+          }
+        : false
+  });
+
+// ==================================================
+// Middleware
+// ==================================================
+
+app.use(
+  express.json({
+    limit: "6mb"
+  })
+);
+
+app.use(
+  express.urlencoded({
+    extended: true
+  })
+);
+
+// ==================================================
+// Session
+// ==================================================
+
+const sessionMiddleware =
+  session({
+    store:
+      new pgSession({
+        pool,
+        tableName: "user_sessions",
+        createTableIfMissing: true
+      }),
+
+    secret:
+      SESSION_SECRET,
+
+    resave: false,
+
+    saveUninitialized: false,
+
+    proxy:
+      process.env.NODE_ENV === "production",
+
+    cookie: {
+      httpOnly: true,
+
+      secure:
+        process.env.NODE_ENV === "production",
+
+      sameSite: "lax",
+
+      maxAge:
+        1000 *
+        60 *
+        60 *
+        24 *
+        30
+    }
+  });
+
+app.use(
+  sessionMiddleware
+);
+
+// ==================================================
+// Socket.IO
+// ==================================================
+
+const io =
+  new Server(
+    server,
+    {
+      cors: {
+        origin: true,
+        credentials: true
+      },
+      // 画像添付メッセージ（Base64）を送受信できるよう
+      // デフォルトの1MB上限を引き上げる
+      maxHttpBufferSize: 5 * 1024 * 1024
+    }
+  );
+
+io.engine.use(
+  sessionMiddleware
+);
+
+// ==================================================
+// Static
+// ==================================================
+
+app.use(
+  express.static(
+    path.join(
+      __dirname,
+      "public"
+    )
+  )
+);
+
+// ==================================================
+// DB 初期化
+// ==================================================
+
+async function initDatabase() {
+
+  console.log(
+    "データベースを初期化しています..."
+  );
 
   // ==================================================
-  // DOM
+  // Users
   // ==================================================
 
-  const authScreen =
-    document.getElementById("authScreen");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT NOT NULL,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
-  const appScreen =
-    document.getElementById("appScreen");
+  await pool.query(`
+    ALTER TABLE users
+    DROP CONSTRAINT IF EXISTS users_email_key
+  `);
 
-  // ==================================================
-  // Auth
-  // ==================================================
+  // プロフィール用カラム（アイコン・自己紹介）
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS avatar TEXT
+  `);
 
-  const loginPanel =
-    document.getElementById("loginPanel");
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS bio TEXT NOT NULL DEFAULT ''
+  `);
 
-  const registerPanel =
-    document.getElementById("registerPanel");
+  await pool.query(`
+    ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE
+  `);
 
-  const forgotPanel =
-    document.getElementById("forgotPanel");
-
-  const loginForm =
-    document.getElementById("loginForm");
-
-  const registerForm =
-    document.getElementById("registerForm");
-
-  const forgotForm =
-    document.getElementById("forgotForm");
-
-  const loginError =
-    document.getElementById("loginError");
-
-  const registerError =
-    document.getElementById("registerError");
-
-  const forgotMessage =
-    document.getElementById("forgotMessage");
-
-  const showRegisterButton =
-    document.getElementById("showRegisterButton");
-
-  const showLoginButton =
-    document.getElementById("showLoginButton");
-
-  const forgotPasswordButton =
-    document.getElementById("forgotPasswordButton");
-
-  const backToLoginButton =
-    document.getElementById("backToLoginButton");
+  // 管理者が誰もいなければ、一番最初に登録したユーザーを
+  // 自動的に管理者にする
+  await pool.query(`
+    UPDATE users
+    SET is_admin = TRUE
+    WHERE id = (SELECT MIN(id) FROM users)
+      AND NOT EXISTS (SELECT 1 FROM users WHERE is_admin = TRUE)
+  `);
 
   // ==================================================
-  // User
-  // ==================================================
-
-  const usernameInput =
-    document.getElementById("usernameInput");
-
-  const settingsUsernameInput =
-    document.getElementById(
-      "settingsUsernameInput"
-    );
-
-  const userAvatarImage =
-    document.getElementById("userAvatarImage");
-
-  const userAvatarWrapper =
-    document.querySelector(".user-avatar");
-
-  // ==================================================
-  // Profile Modal
-  // ==================================================
-
-  const profileModal =
-    document.getElementById("profileModal");
-
-  const closeProfileButton =
-    document.getElementById("closeProfileButton");
-
-  const profileAvatar =
-    document.getElementById("profileAvatar");
-
-  const profileAvatarImage =
-    document.getElementById("profileAvatarImage");
-
-  const profileAvatarFallback =
-    document.getElementById("profileAvatarFallback");
-
-  const profileAvatarInput =
-    document.getElementById("profileAvatarInput");
-
-  const profileAvatarButton =
-    document.getElementById("profileAvatarButton");
-
-  const removeAvatarButton =
-    document.getElementById("removeAvatarButton");
-
-  const profileNameInput =
-    document.getElementById("profileNameInput");
-
-  const profileBioInput =
-    document.getElementById("profileBioInput");
-
-  const profileMessage =
-    document.getElementById("profileMessage");
-
-  const saveProfileButton =
-    document.getElementById("saveProfileButton");
-
-  let pendingAvatarDataUrl = undefined;
-
-  // ==================================================
-  // View Profile Modal（他ユーザーのプロフィール表示）
-  // ==================================================
-
-  const viewProfileModal =
-    document.getElementById("viewProfileModal");
-
-  const closeViewProfileButton =
-    document.getElementById("closeViewProfileButton");
-
-  const viewProfileAvatarImage =
-    document.getElementById("viewProfileAvatarImage");
-
-  const viewProfileAvatarFallback =
-    document.getElementById("viewProfileAvatarFallback");
-
-  const viewProfileName =
-    document.getElementById("viewProfileName");
-
-  const viewProfileBio =
-    document.getElementById("viewProfileBio");
-
-  const editOwnProfileButton =
-    document.getElementById("editOwnProfileButton");
-
   // Rooms
   // ==================================================
 
-  const casualRoomButton =
-    document.getElementById(
-      "casualRoomButton"
-    );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rooms (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      invite_code TEXT NOT NULL UNIQUE,
+      owner TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
-  const createRoomButton =
-    document.getElementById(
-      "createRoomButton"
-    );
+  // 古いDB対応
+  await pool.query(`
+    ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS owner TEXT
+  `);
 
-  const joinRoomButton =
-    document.getElementById(
-      "joinRoomButton"
-    );
+  await pool.query(`
+    ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS owner_id INTEGER
+  `);
 
-  const joinedRooms =
-    document.getElementById(
-      "joinedRooms"
-    );
+  await pool.query(`
+    ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS created_at
+    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  `);
 
-  const userSearchButton =
-    document.getElementById("userSearchButton");
+  await pool.query(`
+    ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS invite_code TEXT
+  `);
 
-  const dmList =
-    document.getElementById("dmList");
-
-  const dmListEmpty =
-    document.getElementById("dmListEmpty");
-
-  const openDMsButton =
-    document.getElementById("openDMsButton");
-
-  const dmNotifBadge =
-    document.getElementById("dmNotifBadge");
-
-  const dmModal =
-    document.getElementById("dmModal");
-
-  const closeDMsButton =
-    document.getElementById("closeDMsButton");
+  await pool.query(`
+    ALTER TABLE rooms
+    ADD COLUMN IF NOT EXISTS name TEXT
+  `);
 
   // ==================================================
-  // 通知パネル
+  // 古い owner データを owner_id に移行
   // ==================================================
 
-  const notificationsButton =
-    document.getElementById("notificationsButton");
+  // owner がユーザー名の場合
+  await pool.query(`
+    UPDATE rooms r
+    SET owner_id = u.id
+    FROM users u
+    WHERE r.owner_id IS NULL
+      AND r.owner IS NOT NULL
+      AND r.owner = u.name
+  `);
 
-  const notificationsBadge =
-    document.getElementById("notificationsBadge");
+  // owner がユーザーIDの場合
+  await pool.query(`
+    UPDATE rooms r
+    SET owner_id = u.id
+    FROM users u
+    WHERE r.owner_id IS NULL
+      AND r.owner IS NOT NULL
+      AND r.owner ~ '^[0-9]+$'
+      AND u.id = r.owner::INTEGER
+  `);
 
-  const notificationsPanel =
-    document.getElementById("notificationsPanel");
+  // owner_id から owner 名を復元
+  await pool.query(`
+    UPDATE rooms r
+    SET owner = u.name
+    FROM users u
+    WHERE r.owner_id = u.id
+      AND (
+        r.owner IS NULL
+        OR TRIM(r.owner) = ''
+      )
+  `);
 
-  const notificationsList =
-    document.getElementById("notificationsList");
-
-  const notificationsEmpty =
-    document.getElementById("notificationsEmpty");
-
-  const clearNotificationsButton =
-    document.getElementById("clearNotificationsButton");
-
-  const roomName =
-    document.getElementById(
-      "roomName"
-    );
-
-  const roomIcon =
-    document.getElementById(
-      "roomIcon"
-    );
-
-  const inviteArea =
-    document.getElementById(
-      "inviteArea"
-    );
-
-  const inviteCode =
-    document.getElementById(
-      "inviteCode"
-    );
-
-  const inviteLinkButton =
-    document.getElementById("inviteLinkButton");
-
-  // ==================================================
-  // Create modal
-  // ==================================================
-
-  const createModal =
-    document.getElementById(
-      "createModal"
-    );
-
-  const roomNameInput =
-    document.getElementById(
-      "roomNameInput"
-    );
-
-  const confirmCreateButton =
-    document.getElementById(
-      "confirmCreateButton"
-    );
-
-  const cancelCreateButtons =
-    document.querySelectorAll(
-      "#cancelCreateButton"
-    );
+  // NULL対策
+  await pool.query(`
+    UPDATE rooms
+    SET owner = 'unknown'
+    WHERE owner IS NULL
+      OR TRIM(owner) = ''
+  `);
 
   // ==================================================
-  // Join modal
+  // owner_id FK
   // ==================================================
 
-  const joinModal =
-    document.getElementById(
-      "joinModal"
-    );
+  await pool.query(`
+    DO $$
+    BEGIN
 
-  const inviteCodeInput =
-    document.getElementById(
-      "inviteCodeInput"
-    );
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'rooms_owner_id_fkey'
+      )
+      THEN
 
-  const confirmJoinButton =
-    document.getElementById(
-      "confirmJoinButton"
-    );
+        ALTER TABLE rooms
+        ADD CONSTRAINT rooms_owner_id_fkey
+        FOREIGN KEY (owner_id)
+        REFERENCES users(id)
+        ON DELETE CASCADE;
 
-  const joinError =
-    document.getElementById(
-      "joinError"
-    );
+      END IF;
 
-  const cancelJoinButtons =
-    document.querySelectorAll(
-      "#cancelJoinButton"
-    );
+    EXCEPTION
+      WHEN duplicate_object THEN
+        NULL;
 
-  // ==================================================
-  // User Search / DM modal
-  // ==================================================
+    END $$;
+  `);
 
-  const userSearchModal =
-    document.getElementById("userSearchModal");
-
-  const closeUserSearchButton =
-    document.getElementById("closeUserSearchButton");
-
-  const userSearchInput =
-    document.getElementById("userSearchInput");
-
-  const userSearchMessage =
-    document.getElementById("userSearchMessage");
-
-  const userSearchResults =
-    document.getElementById("userSearchResults");
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    rooms_owner_id_idx
+    ON rooms(owner_id)
+  `);
 
   // ==================================================
-  // Friends
+  // Room Members
   // ==================================================
 
-  const openFriendsButton =
-    document.getElementById("openFriendsButton");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS room_members (
+      room_id TEXT NOT NULL
+        REFERENCES rooms(id)
+        ON DELETE CASCADE,
 
-  const friendRequestBadge =
-    document.getElementById("friendRequestBadge");
+      user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
 
-  const friendsModal =
-    document.getElementById("friendsModal");
+      joined_at TIMESTAMPTZ NOT NULL
+        DEFAULT NOW(),
 
-  const closeFriendsButton =
-    document.getElementById("closeFriendsButton");
-
-  const friendsTabs =
-    document.querySelectorAll(".friends-tab");
-
-  const friendsPanelFriends =
-    document.getElementById("friendsPanelFriends");
-
-  const friendsPanelIncoming =
-    document.getElementById("friendsPanelIncoming");
-
-  const friendsPanelOutgoing =
-    document.getElementById("friendsPanelOutgoing");
-
-  const friendsList =
-    document.getElementById("friendsList");
-
-  const friendsListEmpty =
-    document.getElementById("friendsListEmpty");
-
-  const incomingRequestsList =
-    document.getElementById("incomingRequestsList");
-
-  const incomingRequestsEmpty =
-    document.getElementById("incomingRequestsEmpty");
-
-  const outgoingRequestsList =
-    document.getElementById("outgoingRequestsList");
-
-  const outgoingRequestsEmpty =
-    document.getElementById("outgoingRequestsEmpty");
-
-  const viewProfileFriendButton =
-    document.getElementById("viewProfileFriendButton");
-
-  const viewProfileFriendMessage =
-    document.getElementById("viewProfileFriendMessage");
-
-  let viewedProfileUserId = null;
+      PRIMARY KEY (
+        room_id,
+        user_id
+      )
+    )
+  `);
 
   // ==================================================
-  // 質問箱・通報
+  // 既存の所有者をメンバー化
   // ==================================================
 
-  const viewProfileQuestionButton =
-    document.getElementById("viewProfileQuestionButton");
+  await pool.query(`
+    INSERT INTO room_members (
+      room_id,
+      user_id
+    )
+    SELECT
+      r.id,
+      r.owner_id
+    FROM rooms r
+    INNER JOIN users u
+      ON u.id = r.owner_id
+    WHERE r.owner_id IS NOT NULL
+    ON CONFLICT (
+      room_id,
+      user_id
+    )
+    DO NOTHING
+  `);
 
-  const viewProfileReportButton =
-    document.getElementById("viewProfileReportButton");
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    room_members_user_idx
+    ON room_members(user_id)
+  `);
 
-  const viewProfileQABoard =
-    document.getElementById("viewProfileQABoard");
-
-  const viewProfileQAList =
-    document.getElementById("viewProfileQAList");
-
-  const askQuestionModal =
-    document.getElementById("askQuestionModal");
-
-  const closeAskQuestionButton =
-    document.getElementById("closeAskQuestionButton");
-
-  const questionInput =
-    document.getElementById("questionInput");
-
-  const askQuestionMessage =
-    document.getElementById("askQuestionMessage");
-
-  const sendQuestionButton =
-    document.getElementById("sendQuestionButton");
-
-  const questionInboxModal =
-    document.getElementById("questionInboxModal");
-
-  const closeQuestionInboxButton =
-    document.getElementById("closeQuestionInboxButton");
-
-  const questionInboxList =
-    document.getElementById("questionInboxList");
-
-  const questionInboxEmpty =
-    document.getElementById("questionInboxEmpty");
-
-  const reportModal =
-    document.getElementById("reportModal");
-
-  const closeReportButton =
-    document.getElementById("closeReportButton");
-
-  const reportReasonSelect =
-    document.getElementById("reportReasonSelect");
-
-  const reportDetailInput =
-    document.getElementById("reportDetailInput");
-
-  const reportMessage =
-    document.getElementById("reportMessage");
-
-  const submitReportButton =
-    document.getElementById("submitReportButton");
-
-  let pendingReportTarget = null;
-
-  const openQuestionInboxButton =
-    document.getElementById("openQuestionInboxButton");
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    room_members_room_idx
+    ON room_members(room_id)
+  `);
 
   // ==================================================
-  // 管理者パネル
+  // チャンネル
   // ==================================================
 
-  const adminSettingsGroup =
-    document.getElementById("adminSettingsGroup");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS channels (
+      id TEXT PRIMARY KEY,
 
-  const openAdminPanelButton =
-    document.getElementById("openAdminPanelButton");
+      room_id TEXT NOT NULL
+        REFERENCES rooms(id)
+        ON DELETE CASCADE,
 
-  const adminPanelModal =
-    document.getElementById("adminPanelModal");
+      name TEXT NOT NULL,
 
-  const closeAdminPanelButton =
-    document.getElementById("closeAdminPanelButton");
+      position INTEGER NOT NULL DEFAULT 0,
 
-  const adminPanelReports =
-    document.getElementById("adminPanelReports");
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
-  const adminPanelUsers =
-    document.getElementById("adminPanelUsers");
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    channels_room_idx
+    ON channels(room_id, position)
+  `);
 
-  const adminReportsList =
-    document.getElementById("adminReportsList");
-
-  const adminReportsEmpty =
-    document.getElementById("adminReportsEmpty");
-
-  const adminUserSearchInput =
-    document.getElementById("adminUserSearchInput");
-
-  const adminUsersList =
-    document.getElementById("adminUsersList");
-
-  // ==================================================
-  // Settings
-  // ==================================================
-
-  const settingsButton =
-    document.getElementById(
-      "settingsButton"
-    );
-
-  const settingsModal =
-    document.getElementById(
-      "settingsModal"
-    );
-
-  const closeSettingsButtons =
-    document.querySelectorAll(
-      "#closeSettingsButton"
-    );
-
-  const saveSettingsButton =
-    document.getElementById(
-      "saveSettingsButton"
-    );
-
-  const logoutButton =
-    document.getElementById(
-      "logoutButton"
-    );
-
-  const themeSelector =
-    document.getElementById("themeSelector");
-
-  const languageSelect =
-    document.getElementById(
-      "languageSelect"
-    );
-
-  const notificationSoundToggleButton =
-    document.getElementById("notificationSoundToggleButton");
-
-  const desktopNotificationToggleButton =
-    document.getElementById("desktopNotificationToggleButton");
-
-  const currentPasswordInput =
-    document.getElementById("currentPasswordInput");
-
-  const newPasswordInput =
-    document.getElementById("newPasswordInput");
-
-  const passwordChangeMessage =
-    document.getElementById("passwordChangeMessage");
-
-  const changePasswordButton =
-    document.getElementById("changePasswordButton");
-
-  const deleteAccountPasswordInput =
-    document.getElementById("deleteAccountPasswordInput");
-
-  const deleteAccountMessage =
-    document.getElementById("deleteAccountMessage");
-
-  const deleteAccountButton =
-    document.getElementById("deleteAccountButton");
+  // 既存の部屋に、デフォルトチャンネル「general」を作成する。
+  // 部屋自身のIDをそのままデフォルトチャンネルのIDとして使うことで、
+  // 既存のメッセージ（messages.room = 部屋ID）を一切移行せずに
+  // そのままデフォルトチャンネルのメッセージとして扱える。
+  await pool.query(`
+    INSERT INTO channels (id, room_id, name, position)
+    SELECT r.id, r.id, 'general', 0
+    FROM rooms r
+    WHERE NOT EXISTS (
+      SELECT 1 FROM channels c WHERE c.room_id = r.id
+    )
+    ON CONFLICT (id) DO NOTHING
+  `);
 
   // ==================================================
-  // Chat
+  // Messages
   // ==================================================
 
-  const messages =
-    document.getElementById(
-      "messages"
-    );
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id BIGSERIAL PRIMARY KEY,
 
-  const messageForm =
-    document.getElementById(
-      "messageForm"
-    );
+      room TEXT NOT NULL,
 
-  const messageInput =
-    document.getElementById(
-      "messageInput"
-    );
+      user_id INTEGER
+        REFERENCES users(id)
+        ON DELETE CASCADE,
 
-  const typingIndicator =
-    document.getElementById("typingIndicator");
+      username TEXT NOT NULL,
 
-  // ==================================================
-  // メンバー一覧
-  // ==================================================
+      text TEXT NOT NULL,
 
-  const memberListOnlineItems =
-    document.getElementById("memberListOnlineItems");
+      reply_to_id BIGINT NULL,
 
-  const memberListOfflineItems =
-    document.getElementById("memberListOfflineItems");
+      reply_to_username TEXT NULL,
 
-  const memberListOnlineCount =
-    document.getElementById("memberListOnlineCount");
+      reply_to_text TEXT NULL,
 
-  const memberListOfflineCount =
-    document.getElementById("memberListOfflineCount");
+      edited BOOLEAN NOT NULL
+        DEFAULT FALSE,
 
-  const memberListOffline =
-    document.getElementById("memberListOffline");
+      created_at TIMESTAMPTZ NOT NULL
+        DEFAULT NOW()
+    )
+  `);
 
-  const memberListPanel =
-    document.getElementById("memberListPanel");
+  await pool.query(`
+    ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS
+    reply_to_id BIGINT NULL
+  `);
 
-  const channelBar =
-    document.getElementById("channelBar");
+  await pool.query(`
+    ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS
+    reply_to_username TEXT NULL
+  `);
 
-  const channelBarList =
-    document.getElementById("channelBarList");
+  await pool.query(`
+    ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS
+    reply_to_text TEXT NULL
+  `);
 
-  const createChannelButton =
-    document.getElementById("createChannelButton");
+  await pool.query(`
+    ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS
+    edited BOOLEAN NOT NULL
+    DEFAULT FALSE
+  `);
 
-  let currentRoomMembers = [];
-  let currentRoomOwnerId = null;
-  let currentServerId = null;
-  let currentChannels = [];
+  await pool.query(`
+    ALTER TABLE messages
+    ADD COLUMN IF NOT EXISTS
+    image TEXT NULL
+  `);
 
-  const imageAttachButton =
-    document.getElementById("imageAttachButton");
-
-  const imageAttachInput =
-    document.getElementById("imageAttachInput");
-
-  const imageAttachPreview =
-    document.getElementById("imageAttachPreview");
-
-  const imageAttachPreviewImg =
-    document.getElementById("imageAttachPreviewImg");
-
-  const removeImageAttachButton =
-    document.getElementById("removeImageAttachButton");
-
-  let pendingImageDataUrl = null;
-
-  const replyPreview =
-    document.getElementById(
-      "replyPreview"
-    );
-
-  const newMessageButton =
-    document.getElementById(
-      "newMessageButton"
-    );
-
-  const scrollTopButton =
-    document.getElementById(
-      "scrollTopButton"
-    );
-
-  const scrollBottomButton =
-    document.getElementById(
-      "scrollBottomButton"
-    );
-
-  const connectionDot =
-    document.getElementById(
-      "connectionDot"
-    );
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    messages_room_created_idx
+    ON messages(room, created_at)
+  `);
 
   // ==================================================
-  // State
+  // Direct Messages
   // ==================================================
 
-  let socket = null;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dm_conversations (
+      id TEXT PRIMARY KEY,
+      user1_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      user2_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (user1_id, user2_id),
+      CHECK (user1_id < user2_id)
+    )
+  `);
 
-  let currentUser = null;
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS dm_conversations_user1_idx
+    ON dm_conversations(user1_id)
+  `);
 
-  let lastMessageAuthorId = null;
-  let lastMessageTime = null;
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS dm_conversations_user2_idx
+    ON dm_conversations(user2_id)
+  `);
 
-  let currentRoomId = "casual";
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dm_messages (
+      id BIGSERIAL PRIMARY KEY,
+      conversation_id TEXT NOT NULL REFERENCES dm_conversations(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      username TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
 
-  let currentChatType = "room";
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS dm_messages_conversation_created_idx
+    ON dm_messages(conversation_id, created_at)
+  `);
 
-  let dmListData = [];
-  let dmSeenTimestamps = {};
-  let roomSeenTimestamps = {};
-  let roomSnapshotInitialized = false;
-  let dmSnapshotInitialized = false;
-  let notifications = [];
+  await pool.query(`
+    ALTER TABLE dm_messages
+    ADD COLUMN IF NOT EXISTS
+    image TEXT NULL
+  `);
 
   // ==================================================
-  // URLルーティング（部屋名でURLが変わるように）
+  // フレンド
   // ==================================================
 
-  function buildPathForCurrentView() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS friend_requests (
+      id SERIAL PRIMARY KEY,
 
-    if (currentChatType === "dm") {
-      return `/dm/${encodeURIComponent(currentRoomId)}`;
-    }
+      from_user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
 
-    if (String(currentRoomId) === "casual") {
-      return "/casual";
-    }
+      to_user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
 
-    const name =
-      currentRoom && currentRoom.name
-        ? currentRoom.name
-        : currentRoomId;
+      status TEXT NOT NULL DEFAULT 'pending',
 
-    return `/${encodeURIComponent(name)}`;
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      responded_at TIMESTAMPTZ,
 
+      UNIQUE (from_user_id, to_user_id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    friend_requests_to_user_idx
+    ON friend_requests(to_user_id, status)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    friend_requests_from_user_idx
+    ON friend_requests(from_user_id, status)
+  `);
+
+  // ==================================================
+  // リアクション
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS message_reactions (
+      id SERIAL PRIMARY KEY,
+
+      message_id BIGINT NOT NULL
+        REFERENCES messages(id)
+        ON DELETE CASCADE,
+
+      user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      emoji TEXT NOT NULL,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      UNIQUE (message_id, user_id, emoji)
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    message_reactions_message_idx
+    ON message_reactions(message_id)
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dm_message_reactions (
+      id SERIAL PRIMARY KEY,
+
+      message_id BIGINT NOT NULL
+        REFERENCES dm_messages(id)
+        ON DELETE CASCADE,
+
+      user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      emoji TEXT NOT NULL,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      UNIQUE (message_id, user_id, emoji)
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    dm_message_reactions_message_idx
+    ON dm_message_reactions(message_id)
+  `);
+
+  // ==================================================
+  // 通報
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS reports (
+      id SERIAL PRIMARY KEY,
+
+      reporter_id INTEGER
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
+      target_user_id INTEGER
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      target_message_id BIGINT,
+
+      target_message_text TEXT,
+
+      reason TEXT NOT NULL,
+
+      detail TEXT,
+
+      status TEXT NOT NULL DEFAULT 'open',
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    reports_status_idx
+    ON reports(status, created_at)
+  `);
+
+  // ==================================================
+  // 質問箱
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS questions (
+      id SERIAL PRIMARY KEY,
+
+      to_user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      from_user_id INTEGER
+        REFERENCES users(id)
+        ON DELETE SET NULL,
+
+      question TEXT NOT NULL,
+
+      answer TEXT,
+
+      answered_at TIMESTAMPTZ,
+
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    questions_to_user_idx
+    ON questions(to_user_id, created_at)
+  `);
+
+  // ==================================================
+  // Password Reset
+  // ==================================================
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id SERIAL PRIMARY KEY,
+
+      user_id INTEGER NOT NULL
+        REFERENCES users(id)
+        ON DELETE CASCADE,
+
+      token_hash TEXT NOT NULL UNIQUE,
+
+      expires_at TIMESTAMPTZ NOT NULL,
+
+      used BOOLEAN NOT NULL DEFAULT FALSE,
+
+      created_at TIMESTAMPTZ NOT NULL
+        DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS
+    password_reset_token_hash_idx
+    ON password_reset_tokens(token_hash)
+  `);
+
+  console.log(
+    "データベースの準備が完了しました。"
+  );
+}
+
+// ==================================================
+// 共通関数
+// ==================================================
+
+function normalizeEmail(email) {
+
+  return String(email || "")
+    .trim()
+    .toLowerCase();
+
+}
+
+function normalizeName(name) {
+
+  return String(name || "")
+    .trim();
+
+}
+
+function generateRoomId() {
+
+  return (
+    "room_" +
+    crypto
+      .randomBytes(8)
+      .toString("hex")
+  );
+
+}
+
+function generateInviteCode() {
+
+  return crypto
+    .randomBytes(5)
+    .toString("hex")
+    .toUpperCase();
+
+}
+
+function generateResetToken() {
+
+  return crypto
+    .randomBytes(32)
+    .toString("hex");
+
+}
+
+function hashToken(token) {
+
+  return crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+
+}
+
+// ==================================================
+// 画像バリデーション（アイコン・チャット添付共通）
+// ==================================================
+
+function isValidImageDataUrl(value, maxLength) {
+
+  if (value === null || value === undefined || value === "") {
+    return true;
   }
 
-  function updateUrlForCurrentView(replace) {
-
-    try {
-
-      const path = buildPathForCurrentView();
-
-      if (window.location.pathname === path) {
-        return;
-      }
-
-      const method = replace ? "replaceState" : "pushState";
-
-      window.history[method](
-        { chatType: currentChatType, roomId: currentRoomId },
-        "",
-        path
-      );
-
-    } catch (error) {
-      console.error("updateUrlForCurrentView error:", error);
-    }
-
+  if (typeof value !== "string") {
+    return false;
   }
 
-  function parseRouteFromLocation() {
+  if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(value)) {
+    return false;
+  }
 
-    const path = window.location.pathname;
+  if (value.length > maxLength) {
+    return false;
+  }
 
-    let match = path.match(/^\/dm\/([^/]+)\/?$/);
+  return true;
 
-    if (match) {
-      return { type: "dm", conversationId: decodeURIComponent(match[1]) };
-    }
+}
 
-    if (path === "/casual" || path === "/") {
-      return { type: "casual" };
-    }
+// ==================================================
+// User format
+// ==================================================
 
-    match = path.match(/^\/([^/]+)\/?$/);
+function sanitizeUser(user) {
 
-    if (match) {
-      return { type: "room-name", name: decodeURIComponent(match[1]) };
-    }
-
+  if (!user) {
     return null;
-
   }
 
-  function navigateToRoute(route) {
-
-    if (!route || !socket || !socket.connected) return;
-
-    if (route.type === "dm") {
-
-      openDM(route.conversationId);
-
-    } else if (route.type === "casual") {
-
-      socket.emit("join casual");
-
-    } else if (route.type === "room-name") {
-
-      socket.emit("resolve room path", { name: route.name });
-
-    }
-
-  }
-
-  window.addEventListener("popstate", () => {
-    const route = parseRouteFromLocation();
-    if (route) navigateToRoute(route);
-  });
-
-  let currentRoom = {
-    id: "casual",
-    name: "雑談",
-    inviteCode: null,
-    ownerId: null
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    avatar: user.avatar || null,
+    bio: user.bio || "",
+    isAdmin: Boolean(user.is_admin)
   };
 
-  let myRooms = [];
+}
 
-  let replyToMessage = null;
+// ==================================================
+// Room format
+// ==================================================
 
-  let isLoadingMessages = false;
+function formatRoom(room) {
 
-  // ==================================================
-  // Utilities
-  // ==================================================
+  return {
+    id: room.id,
 
-  function escapeHtml(value) {
+    name: room.name,
 
-    return String(value ?? "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+    inviteCode:
+      room.invite_code,
 
-  }
+    ownerId:
+      room.owner_id !== null &&
+      room.owner_id !== undefined
+        ? Number(room.owner_id)
+        : null,
 
-  // ==================================================
-  // アイコン画像 / 頭文字フォールバック 共通ヘルパー
-  // ==================================================
+    createdAt:
+      room.created_at || null,
 
-  function buildReactionsHtml(message) {
+    lastMessageAt:
+      room.last_message_at || null
+  };
 
-    const reactions = Array.isArray(message.reactions) ? message.reactions : [];
+}
 
-    if (reactions.length === 0) return "";
+// ==================================================
+// Message format
+// ==================================================
 
-    return reactions.map(reaction => {
+function formatMessage(row) {
 
-      const mine =
-        currentUser &&
-        reaction.userIds.some(id => Number(id) === Number(currentUser.id));
+  return {
+    id: row.id,
 
-      return `
-        <button
-          type="button"
-          class="reaction-pill ${mine ? "mine" : ""}"
-          data-action="toggle-reaction"
-          data-emoji="${escapeHtml(reaction.emoji)}"
-        >
-          ${escapeHtml(reaction.emoji)} <span class="reaction-count">${reaction.userIds.length}</span>
-        </button>
-      `;
+    room: row.room,
 
-    }).join("");
+    userId: row.user_id,
 
-  }
+    username: row.username,
 
-  const REACTION_EMOJI_CHOICES = ["👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"];
+    avatar: row.avatar || null,
 
-  let reactionPickerEl = null;
+    text: row.text,
 
-  function closeReactionPicker() {
-    reactionPickerEl?.remove();
-    reactionPickerEl = null;
-  }
+    image: row.image || null,
 
-  function openReactionPicker(anchorEl, messageId) {
+    replyToId:
+      row.reply_to_id,
 
-    closeReactionPicker();
+    replyToUsername:
+      row.reply_to_username,
 
-    const picker = document.createElement("div");
-    picker.className = "reaction-picker";
+    replyToText:
+      row.reply_to_text,
 
-    for (const emoji of REACTION_EMOJI_CHOICES) {
+    edited:
+      row.edited,
 
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "reaction-picker-option";
-      button.textContent = emoji;
+    createdAt:
+      row.created_at,
 
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        toggleReaction(messageId, emoji);
-        closeReactionPicker();
+    reactions:
+      row.reactions || []
+  };
+
+}
+
+// ==================================================
+// 認証 Middleware
+// ==================================================
+
+function requireLogin(
+  req,
+  res,
+  next
+) {
+
+  if (!req.session.userId) {
+
+    return res
+      .status(401)
+      .json({
+        message:
+          "ログインしてください。"
       });
 
-      picker.appendChild(button);
-
-    }
-
-    document.body.appendChild(picker);
-
-    const rect = anchorEl.getBoundingClientRect();
-    picker.style.top = `${rect.bottom + window.scrollY + 4}px`;
-    picker.style.left = `${rect.left + window.scrollX}px`;
-
-    reactionPickerEl = picker;
-
-    setTimeout(() => {
-      document.addEventListener("click", closeReactionPicker, { once: true });
-    }, 0);
-
   }
 
-  function toggleReaction(messageId, emoji) {
+  next();
 
-    if (!socket || !socket.connected) return;
+}
 
-    socket.emit("toggle reaction", { messageId, emoji });
+async function requireAdmin(req, res, next) {
 
+  if (!req.session.userId) {
+    return res.status(401).json({ message: "ログインしてください。" });
   }
 
-  function updateMessageReactions(messageId, reactions) {
+  try {
 
-    if (!messages) return;
-
-    const container = messages.querySelector(
-      `.message-reactions[data-message-id="${CSS.escape(String(messageId))}"]`
+    const result = await pool.query(
+      `SELECT is_admin FROM users WHERE id = $1 LIMIT 1`,
+      [req.session.userId]
     );
 
-    if (!container) return;
-
-    const fakeMessage = { reactions };
-
-    container.innerHTML =
-      buildReactionsHtml(fakeMessage) +
-      `<button type="button" class="reaction-add-button" data-action="add-reaction" title="リアクションを追加">😊+</button>`;
-
-    container.querySelectorAll('[data-action="toggle-reaction"]').forEach(el => {
-      el.addEventListener("click", () => {
-        toggleReaction(messageId, el.dataset.emoji);
-      });
-    });
-
-    container.querySelector('[data-action="add-reaction"]')?.addEventListener("click", (event) => {
-      event.stopPropagation();
-      openReactionPicker(event.currentTarget, messageId);
-    });
-
-  }
-
-  function linkifyHtml(text) {
-
-    const escaped = escapeHtml(text);
-
-    const urlPattern =
-      /(https?:\/\/[^\s<]+)/g;
-
-    const linked = escaped.replace(
-      urlPattern,
-      (match) => {
-
-        // 末尾の句読点・括弧はリンクに含めない
-        let url = match;
-        let trailing = "";
-
-        while (
-          url.length > 0 &&
-          /[.,、。!！?？)）\]】」』]$/.test(url)
-        ) {
-          trailing = url.slice(-1) + trailing;
-          url = url.slice(0, -1);
-        }
-
-        return `<a href="${url}" target="_blank" rel="noopener noreferrer nofollow">${url}</a>${trailing}`;
-
-      }
-    );
-
-    // @メンションのハイライト（リンク化されたURL部分は避ける）
-    const mentionPattern = /(^|[\s])@([^\s<@]+)/g;
-
-    return linked.replace(
-      mentionPattern,
-      (fullMatch, before, name) => {
-        return `${before}<span class="mention">@${name}</span>`;
-      }
-    );
-
-  }
-
-  function avatarInnerHtml(avatarUrl, name) {
-
-    const letter =
-      String(name || "U")
-        .trim()
-        .charAt(0)
-        .toUpperCase() || "U";
-
-    if (avatarUrl) {
-
-      return `<img src="${escapeHtml(avatarUrl)}" alt="" class="avatar-image">`;
-
+    if (result.rows.length === 0 || !result.rows[0].is_admin) {
+      return res.status(403).json({ message: "権限がありません。" });
     }
 
-    return `<span class="avatar-fallback">${escapeHtml(letter)}</span>`;
+    next();
 
+  } catch (error) {
+    console.error("requireAdmin error:", error);
+    return res.status(500).json({ message: "権限を確認できませんでした。" });
   }
 
-  function formatTime(dateValue) {
+}
 
-    if (!dateValue) {
-      return "";
-    }
+// ==================================================
+// /api/me
+// ==================================================
 
-    const date =
-      new Date(dateValue);
-
-    if (
-      Number.isNaN(
-        date.getTime()
-      )
-    ) {
-      return "";
-    }
-
-    return date.toLocaleTimeString(
-      "ja-JP",
-      {
-        hour: "2-digit",
-        minute: "2-digit"
-      }
-    );
-
-  }
-
-  function isNearBottom() {
-
-    if (!messages) {
-      return true;
-    }
-
-    const distance =
-      messages.scrollHeight -
-      messages.scrollTop -
-      messages.clientHeight;
-
-    return distance < 120;
-
-  }
-
-  function scrollToBottom(
-    smooth = true
-  ) {
-
-    if (!messages) {
-      return;
-    }
-
-    messages.scrollTo({
-      top:
-        messages.scrollHeight,
-
-      behavior:
-        smooth
-          ? "smooth"
-          : "auto"
-    });
-
-  }
-
-  function showScreen(
-    screen
-  ) {
-
-    if (screen === "app") {
-
-      authScreen?.classList.add(
-        "hidden"
-      );
-
-      appScreen?.classList.remove(
-        "hidden"
-      );
-
-    } else {
-
-      appScreen?.classList.add(
-        "hidden"
-      );
-
-      authScreen?.classList.remove(
-        "hidden"
-      );
-
-    }
-
-  }
-
-  function setConnection(
-    connected
-  ) {
-
-    if (!connectionDot) {
-      return;
-    }
-
-    if (connected) {
-
-      connectionDot.classList.add(
-        "connected"
-      );
-
-      connectionDot.classList.remove(
-        "disconnected"
-      );
-
-    } else {
-
-      connectionDot.classList.remove(
-        "connected"
-      );
-
-      connectionDot.classList.add(
-        "disconnected"
-      );
-
-    }
-
-  }
-
-  // ==================================================
-  // Auth panel
-  // ==================================================
-
-  function showAuthPanel(
-    panel
-  ) {
-
-    loginPanel?.classList.add(
-      "hidden"
-    );
-
-    registerPanel?.classList.add(
-      "hidden"
-    );
-
-    forgotPanel?.classList.add(
-      "hidden"
-    );
-
-    panel?.classList.remove(
-      "hidden"
-    );
-
-  }
-
-  // ==================================================
-  // API
-  // ==================================================
-
-  async function api(
-    url,
-    options = {}
-  ) {
-
-    const response =
-      await fetch(
-        url,
-        {
-          credentials: "same-origin",
-
-          ...options,
-
-          headers: {
-            "Content-Type":
-              "application/json",
-
-            ...(options.headers || {})
-          }
-        }
-      );
-
-    let data = {};
+app.get(
+  "/api/me",
+  async (req, res) => {
 
     try {
 
-      data =
-        await response.json();
+      if (!req.session.userId) {
 
-    } catch {
+        return res.json({
+          loggedIn: false
+        });
 
-      data = {};
+      }
 
-    }
-
-    if (!response.ok) {
-
-      const error =
-        new Error(
-          data.message ||
-          "通信に失敗しました。"
-        );
-
-      error.status =
-        response.status;
-
-      error.data =
-        data;
-
-      throw error;
-
-    }
-
-    return data;
-
-  }
-
-  // ==================================================
-  // Me
-  // ==================================================
-
-  async function loadCurrentUser() {
-
-    try {
-
-      const data =
-        await api(
-          "/api/me"
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            email,
+            name,
+            avatar,
+            bio,
+            is_admin
+          FROM users
+          WHERE id = $1
+          `,
+          [
+            req.session.userId
+          ]
         );
 
       if (
-        !data.loggedIn ||
-        !data.user
+        result.rows.length === 0
       ) {
 
-        currentUser = null;
-
-        showScreen(
-          "auth"
+        req.session.destroy(
+          () => {}
         );
 
-        return false;
+        return res.json({
+          loggedIn: false
+        });
 
       }
 
-      currentUser =
-        data.user;
+      return res.json({
+        loggedIn: true,
 
-      updateUserUI();
-
-      showScreen(
-        "app"
-      );
-
-      return true;
+        user:
+          sanitizeUser(
+            result.rows[0]
+          )
+      });
 
     } catch (error) {
 
       console.error(
-        "loadCurrentUser error:",
+        "/api/me error:",
         error
       );
 
-      showScreen(
-        "auth"
+      return res
+        .status(500)
+        .json({
+          message:
+            "ログイン状態を確認できませんでした。"
+        });
+
+    }
+
+  }
+);
+
+// ==================================================
+// プロフィール更新（アイコン・自己紹介・名前）
+// ==================================================
+
+app.put(
+  "/api/profile",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const name =
+        req.body?.name !== undefined
+          ? String(req.body.name).trim()
+          : undefined;
+
+      const bio =
+        req.body?.bio !== undefined
+          ? String(req.body.bio).slice(0, 300)
+          : undefined;
+
+      const avatar =
+        req.body?.avatar !== undefined
+          ? req.body.avatar
+          : undefined;
+
+      if (name !== undefined) {
+
+        if (!name || name.length > 50) {
+          return res.status(400).json({
+            message: "名前は1〜50文字で入力してください。"
+          });
+        }
+
+      }
+
+      if (
+        avatar !== null &&
+        avatar !== undefined &&
+        typeof avatar === "string" &&
+        avatar.length > 0
+      ) {
+
+        if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(avatar)) {
+          return res.status(400).json({
+            message: "アイコンの画像形式が正しくありません。"
+          });
+        }
+
+        if (avatar.length > 700000) {
+          return res.status(400).json({
+            message: "アイコン画像が大きすぎます。もう少し小さい画像を選んでください。"
+          });
+        }
+
+      }
+
+      const fields = [];
+      const values = [];
+      let index = 1;
+
+      if (name !== undefined) {
+        fields.push(`name = $${index++}`);
+        values.push(name);
+      }
+
+      if (bio !== undefined) {
+        fields.push(`bio = $${index++}`);
+        values.push(bio);
+      }
+
+      if (avatar !== undefined) {
+        fields.push(`avatar = $${index++}`);
+        values.push(avatar === null || avatar === "" ? null : avatar);
+      }
+
+      if (fields.length === 0) {
+        return res.status(400).json({
+          message: "更新する項目がありません。"
+        });
+      }
+
+      values.push(req.session.userId);
+
+      const result = await pool.query(
+        `
+        UPDATE users
+        SET ${fields.join(", ")}
+        WHERE id = $${index}
+        RETURNING id, email, name, avatar, bio
+        `,
+        values
       );
 
-      return false;
-
-    }
-
-  }
-
-  function updateUserUI() {
-
-    if (!currentUser) {
-      return;
-    }
-
-    adminSettingsGroup?.classList.toggle("hidden", !currentUser.isAdmin);
-
-    if (usernameInput) {
-
-      usernameInput.textContent =
-        currentUser.name;
-
-    }
-
-    if (settingsUsernameInput) {
-
-      settingsUsernameInput.value =
-        currentUser.name;
-
-    }
-
-    if (userAvatarImage) {
-
-      if (currentUser.avatar) {
-
-        userAvatarImage.src =
-          currentUser.avatar;
-
-        userAvatarImage.classList.remove(
-          "hidden"
-        );
-
-      } else {
-
-        userAvatarImage.src = "";
-
-        userAvatarImage.classList.add(
-          "hidden"
-        );
-
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          message: "ユーザーが見つかりません。"
+        });
       }
 
-    }
-
-    if (userAvatarWrapper) {
-
-      const fallback =
-        userAvatarWrapper.querySelector(
-          "span:not(.user-avatar-image)"
-        );
-
-      if (fallback) {
-
-        fallback.textContent =
-          (currentUser.name || "U")
-            .trim()
-            .charAt(0)
-            .toUpperCase() || "U";
-
-      }
-
-    }
-
-  }
-
-  // ==================================================
-  // Socket
-  // ==================================================
-
-  function connectSocket() {
-
-    if (socket) {
-
-      try {
-
-        socket.disconnect();
-
-      } catch {
-
-        // ignore
-
-      }
-
-    }
-
-    socket =
-      io({
-        withCredentials: true
+      return res.json({
+        user: sanitizeUser(result.rows[0])
       });
 
-    // ==================================================
-    // Connect
-    // ==================================================
+    } catch (error) {
 
-    function requestActiveRoomData() {
+      console.error("/api/profile error:", error);
 
-      if (currentChatType === "dm") {
-
-        openDM(currentRoomId);
-
-      } else if (String(currentRoomId) === "casual") {
-
-        socket.emit("join casual");
-
-      } else if (currentServerId) {
-
-        // 特定のチャンネルを見ていた場合はそのチャンネルを、
-        // そうでなければ部屋の既定チャンネル（部屋自身のID）を開く
-        socket.emit(
-          "open channel",
-          { channelId: currentRoomId }
-        );
-
-      } else {
-
-        socket.emit(
-          "open my room",
-          { roomId: currentRoomId }
-        );
-
-      }
+      return res.status(500).json({
+        message: "プロフィールを更新できませんでした。"
+      });
 
     }
 
-    let hasHandledInitialRoute = false;
+  }
+);
+
+// ==================================================
+// パスワード変更
+// ==================================================
+
+app.put(
+  "/api/password",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const currentPassword =
+        String(req.body?.currentPassword || "");
+
+      const newPassword =
+        String(req.body?.newPassword || "");
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({
+          message: "現在のパスワードと新しいパスワードを入力してください。"
+        });
+      }
+
+      if (newPassword.length < 8) {
+        return res.status(400).json({
+          message: "新しいパスワードは8文字以上で入力してください。"
+        });
+      }
+
+      const result = await pool.query(
+        `
+        SELECT id, password_hash
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [req.session.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          message: "ユーザーが見つかりません。"
+        });
+      }
+
+      const valid = await bcrypt.compare(
+        currentPassword,
+        result.rows[0].password_hash
+      );
+
+      if (!valid) {
+        return res.status(401).json({
+          message: "現在のパスワードが正しくありません。"
+        });
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 12);
+
+      await pool.query(
+        `
+        UPDATE users
+        SET password_hash = $1
+        WHERE id = $2
+        `,
+        [newHash, req.session.userId]
+      );
+
+      return res.json({
+        message: "パスワードを変更しました。"
+      });
+
+    } catch (error) {
+
+      console.error("/api/password error:", error);
+
+      return res.status(500).json({
+        message: "パスワードを変更できませんでした。"
+      });
+
+    }
+
+  }
+);
+
+// ==================================================
+// アカウント削除
+// ==================================================
+
+app.delete(
+  "/api/account",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const password =
+        String(req.body?.password || "");
+
+      if (!password) {
+        return res.status(400).json({
+          message: "確認のためパスワードを入力してください。"
+        });
+      }
+
+      const result = await pool.query(
+        `
+        SELECT id, password_hash
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [req.session.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          message: "ユーザーが見つかりません。"
+        });
+      }
+
+      const valid = await bcrypt.compare(
+        password,
+        result.rows[0].password_hash
+      );
+
+      if (!valid) {
+        return res.status(401).json({
+          message: "パスワードが正しくありません。"
+        });
+      }
+
+      await pool.query(
+        `DELETE FROM users WHERE id = $1`,
+        [req.session.userId]
+      );
+
+      req.session.destroy(() => {});
+
+      return res.json({
+        message: "アカウントを削除しました。"
+      });
+
+    } catch (error) {
+
+      console.error("/api/account error:", error);
+
+      return res.status(500).json({
+        message: "アカウントを削除できませんでした。"
+      });
+
+    }
+
+  }
+);
+
+// ==================================================
+// ユーザー検索
+// ==================================================
+
+app.get(
+  "/api/users/search",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+      const q = String(req.query.q || "").trim();
+
+      if (!q) {
+        return res.json({ users: [] });
+      }
+
+      const result = await pool.query(
+        `
+        SELECT id, name, avatar
+        FROM users
+        WHERE id <> $1
+          AND name ILIKE $2
+        ORDER BY name ASC
+        LIMIT 20
+        `,
+        [req.session.userId, `%${q}%`]
+      );
+
+      return res.json({
+        users: result.rows.map(row => ({
+          id: Number(row.id),
+          name: row.name,
+          avatar: row.avatar || null
+        }))
+      });
+    } catch (error) {
+      console.error("/api/users/search error:", error);
+      return res.status(500).json({
+        message: "ユーザーを検索できませんでした。"
+      });
+    }
+  }
+);
+
+// ==================================================
+// プロフィール表示（他ユーザーの自己紹介を見る用）
+// ==================================================
+
+app.get(
+  "/api/users/:id",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const targetId = Number(req.params.id);
+
+      if (!Number.isInteger(targetId) || targetId <= 0) {
+        return res.status(400).json({
+          message: "ユーザーが見つかりません。"
+        });
+      }
+
+      const result = await pool.query(
+        `
+        SELECT id, name, avatar, bio
+        FROM users
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [targetId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({
+          message: "ユーザーが見つかりません。"
+        });
+      }
+
+      const row = result.rows[0];
+
+      let friendStatus = "none";
+      let friendRequestId = null;
+
+      const friendRow = await pool.query(
+        `
+        SELECT id, from_user_id, to_user_id, status
+        FROM friend_requests
+        WHERE (from_user_id = $1 AND to_user_id = $2)
+           OR (from_user_id = $2 AND to_user_id = $1)
+        LIMIT 1
+        `,
+        [req.session.userId, targetId]
+      );
+
+      if (friendRow.rows.length > 0) {
+
+        const fr = friendRow.rows[0];
+        friendRequestId = fr.id;
+
+        if (fr.status === "accepted") {
+          friendStatus = "friends";
+        } else if (fr.status === "pending") {
+          friendStatus =
+            Number(fr.from_user_id) === Number(req.session.userId)
+              ? "outgoing"
+              : "incoming";
+        }
+
+      }
+
+      return res.json({
+        user: {
+          id: Number(row.id),
+          name: row.name,
+          avatar: row.avatar || null,
+          bio: row.bio || "",
+          friendStatus,
+          friendRequestId
+        }
+      });
+
+    } catch (error) {
+      console.error("/api/users/:id error:", error);
+      return res.status(500).json({
+        message: "ユーザー情報を取得できませんでした。"
+      });
+    }
+
+  }
+);
+
+// ==================================================
+// フレンド一覧・リクエスト一覧
+// ==================================================
+
+app.get(
+  "/api/friends",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const myId = req.session.userId;
+
+      const friendsResult = await pool.query(
+        `
+        SELECT
+          fr.id,
+          CASE WHEN fr.from_user_id = $1 THEN fr.to_user_id ELSE fr.from_user_id END AS other_id,
+          CASE WHEN fr.from_user_id = $1 THEN u2.name ELSE u1.name END AS other_name,
+          CASE WHEN fr.from_user_id = $1 THEN u2.avatar ELSE u1.avatar END AS other_avatar
+        FROM friend_requests fr
+        INNER JOIN users u1 ON u1.id = fr.from_user_id
+        INNER JOIN users u2 ON u2.id = fr.to_user_id
+        WHERE fr.status = 'accepted'
+          AND (fr.from_user_id = $1 OR fr.to_user_id = $1)
+        ORDER BY u2.name ASC
+        `,
+        [myId]
+      );
+
+      const incomingResult = await pool.query(
+        `
+        SELECT fr.id, fr.from_user_id AS other_id, u.name AS other_name, u.avatar AS other_avatar
+        FROM friend_requests fr
+        INNER JOIN users u ON u.id = fr.from_user_id
+        WHERE fr.status = 'pending' AND fr.to_user_id = $1
+        ORDER BY fr.created_at DESC
+        `,
+        [myId]
+      );
+
+      const outgoingResult = await pool.query(
+        `
+        SELECT fr.id, fr.to_user_id AS other_id, u.name AS other_name, u.avatar AS other_avatar
+        FROM friend_requests fr
+        INNER JOIN users u ON u.id = fr.to_user_id
+        WHERE fr.status = 'pending' AND fr.from_user_id = $1
+        ORDER BY fr.created_at DESC
+        `,
+        [myId]
+      );
+
+      const mapRow = row => ({
+        id: row.id,
+        userId: Number(row.other_id),
+        name: row.other_name,
+        avatar: row.other_avatar || null
+      });
+
+      return res.json({
+        friends: friendsResult.rows.map(mapRow),
+        incoming: incomingResult.rows.map(mapRow),
+        outgoing: outgoingResult.rows.map(mapRow)
+      });
+
+    } catch (error) {
+      console.error("/api/friends error:", error);
+      return res.status(500).json({
+        message: "フレンド情報を取得できませんでした。"
+      });
+    }
+
+  }
+);
+
+// ==================================================
+// フレンド申請を送る
+// ==================================================
+
+app.post(
+  "/api/friends/request",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const myId = Number(req.session.userId);
+      const targetId = Number(req.body?.userId);
+
+      if (!Number.isInteger(targetId) || targetId <= 0) {
+        return res.status(400).json({ message: "ユーザーを選択してください。" });
+      }
+
+      if (targetId === myId) {
+        return res.status(400).json({ message: "自分自身には申請できません。" });
+      }
+
+      const meResult = await pool.query(
+        `SELECT name FROM users WHERE id = $1 LIMIT 1`,
+        [myId]
+      );
+
+      const myName = meResult.rows[0]?.name || "誰か";
+
+      const targetExists = await pool.query(
+        `SELECT id FROM users WHERE id = $1 LIMIT 1`,
+        [targetId]
+      );
+
+      if (targetExists.rows.length === 0) {
+        return res.status(404).json({ message: "ユーザーが見つかりません。" });
+      }
+
+      // 相手から既に申請が来ていれば、自動的に承認する
+      const reverseResult = await pool.query(
+        `
+        UPDATE friend_requests
+        SET status = 'accepted', responded_at = NOW()
+        WHERE from_user_id = $1 AND to_user_id = $2 AND status = 'pending'
+        RETURNING id
+        `,
+        [targetId, myId]
+      );
+
+      if (reverseResult.rows.length > 0) {
+        notifyUser(targetId, "friend request update");
+        notifyUser(targetId, "friend request accepted", { byId: myId, byName: myName });
+        return res.json({ status: "accepted", message: "フレンドになりました。" });
+      }
+
+      const existing = await pool.query(
+        `
+        SELECT id, status
+        FROM friend_requests
+        WHERE from_user_id = $1 AND to_user_id = $2
+        LIMIT 1
+        `,
+        [myId, targetId]
+      );
+
+      if (existing.rows.length > 0) {
+
+        const row = existing.rows[0];
+
+        if (row.status === "accepted") {
+          return res.status(409).json({ message: "既にフレンドです。" });
+        }
+
+        if (row.status === "pending") {
+          return res.status(409).json({ message: "既に申請済みです。" });
+        }
+
+        // declined だった場合は再申請扱いにする
+        await pool.query(
+          `
+          UPDATE friend_requests
+          SET status = 'pending', created_at = NOW(), responded_at = NULL
+          WHERE id = $1
+          `,
+          [row.id]
+        );
+
+        notifyUser(targetId, "friend request update");
+        notifyUser(targetId, "friend request received", { fromId: myId, fromName: myName });
+
+        return res.json({ status: "pending", message: "フレンド申請を送りました。" });
+
+      }
+
+      await pool.query(
+        `
+        INSERT INTO friend_requests (from_user_id, to_user_id, status)
+        VALUES ($1, $2, 'pending')
+        `,
+        [myId, targetId]
+      );
+
+      notifyUser(targetId, "friend request update");
+      notifyUser(targetId, "friend request received", { fromId: myId, fromName: myName });
+
+      return res.json({ status: "pending", message: "フレンド申請を送りました。" });
+
+    } catch (error) {
+      console.error("/api/friends/request error:", error);
+      return res.status(500).json({ message: "フレンド申請を送れませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// フレンド申請を承認
+// ==================================================
+
+app.post(
+  "/api/friends/:id/accept",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const id = Number(req.params.id);
+      const myId = req.session.userId;
+
+      const result = await pool.query(
+        `
+        UPDATE friend_requests
+        SET status = 'accepted', responded_at = NOW()
+        WHERE id = $1 AND to_user_id = $2 AND status = 'pending'
+        RETURNING from_user_id
+        `,
+        [id, myId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "この申請は見つかりませんでした。" });
+      }
+
+      const meResult = await pool.query(
+        `SELECT name FROM users WHERE id = $1 LIMIT 1`,
+        [myId]
+      );
+
+      const myName = meResult.rows[0]?.name || "誰か";
+      const fromUserId = Number(result.rows[0].from_user_id);
+
+      notifyUser(fromUserId, "friend request update");
+      notifyUser(fromUserId, "friend request accepted", { byId: Number(myId), byName: myName });
+
+      return res.json({ message: "フレンドになりました。" });
+
+    } catch (error) {
+      console.error("/api/friends/:id/accept error:", error);
+      return res.status(500).json({ message: "承認できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// フレンド申請を拒否 / 取り消し / フレンド解除
+// ==================================================
+
+app.delete(
+  "/api/friends/:id",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const id = Number(req.params.id);
+      const myId = req.session.userId;
+
+      const result = await pool.query(
+        `
+        DELETE FROM friend_requests
+        WHERE id = $1
+          AND (from_user_id = $2 OR to_user_id = $2)
+        RETURNING
+          CASE WHEN from_user_id = $2 THEN to_user_id ELSE from_user_id END AS other_id
+        `,
+        [id, myId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "見つかりませんでした。" });
+      }
+
+      notifyUser(Number(result.rows[0].other_id), "friend request update");
+
+      return res.json({ message: "更新しました。" });
+
+    } catch (error) {
+      console.error("/api/friends/:id error:", error);
+      return res.status(500).json({ message: "処理できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 通報
+// ==================================================
+
+app.post(
+  "/api/reports",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const targetUserId =
+        req.body?.targetUserId !== undefined
+          ? Number(req.body.targetUserId)
+          : null;
+
+      const targetMessageId =
+        req.body?.targetMessageId
+          ? String(req.body.targetMessageId).replace(/^dm-/, "")
+          : null;
+
+      const targetMessageText =
+        req.body?.targetMessageText
+          ? String(req.body.targetMessageText).slice(0, 2000)
+          : null;
+
+      const reason =
+        String(req.body?.reason || "").trim();
+
+      const detail =
+        req.body?.detail
+          ? String(req.body.detail).slice(0, 1000)
+          : null;
+
+      if (!reason) {
+        return res.status(400).json({ message: "理由を選択してください。" });
+      }
+
+      if (!targetUserId && !targetMessageId) {
+        return res.status(400).json({ message: "通報対象が指定されていません。" });
+      }
+
+      await pool.query(
+        `
+        INSERT INTO reports (
+          reporter_id, target_user_id, target_message_id,
+          target_message_text, reason, detail
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        `,
+        [
+          req.session.userId,
+          targetUserId,
+          targetMessageId && /^\d+$/.test(targetMessageId) ? targetMessageId : null,
+          targetMessageText,
+          reason,
+          detail
+        ]
+      );
+
+      return res.json({ message: "通報を受け付けました。ご協力ありがとうございます。" });
+
+    } catch (error) {
+      console.error("/api/reports error:", error);
+      return res.status(500).json({ message: "通報を送信できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 管理者：通報一覧
+// ==================================================
+
+app.get(
+  "/api/admin/reports",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const result = await pool.query(
+        `
+        SELECT
+          r.id,
+          r.reason,
+          r.detail,
+          r.target_message_id,
+          r.target_message_text,
+          r.status,
+          r.created_at,
+          reporter.name AS reporter_name,
+          target.id AS target_user_id,
+          target.name AS target_user_name
+        FROM reports r
+        LEFT JOIN users reporter ON reporter.id = r.reporter_id
+        LEFT JOIN users target ON target.id = r.target_user_id
+        WHERE r.status = 'open'
+        ORDER BY r.created_at DESC
+        LIMIT 200
+        `
+      );
+
+      return res.json({
+        reports: result.rows.map(row => ({
+          id: row.id,
+          reason: row.reason,
+          detail: row.detail,
+          targetMessageId: row.target_message_id,
+          targetMessageText: row.target_message_text,
+          reporterName: row.reporter_name || "(削除済みユーザー)",
+          targetUserId: row.target_user_id ? Number(row.target_user_id) : null,
+          targetUserName: row.target_user_name || null,
+          createdAt: row.created_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/admin/reports error:", error);
+      return res.status(500).json({ message: "取得できませんでした。" });
+    }
+
+  }
+);
+
+app.post(
+  "/api/admin/reports/:id/resolve",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      await pool.query(
+        `UPDATE reports SET status = 'resolved' WHERE id = $1`,
+        [Number(req.params.id)]
+      );
+
+      return res.json({ message: "対応済みにしました。" });
+
+    } catch (error) {
+      console.error("/api/admin/reports/:id/resolve error:", error);
+      return res.status(500).json({ message: "処理できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 管理者：ユーザー検索・削除
+// ==================================================
+
+app.get(
+  "/api/admin/users/search",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const q = String(req.query.q || "").trim();
+
+      if (!q) {
+        return res.json({ users: [] });
+      }
+
+      const result = await pool.query(
+        `
+        SELECT id, name, email, avatar, is_admin, created_at
+        FROM users
+        WHERE name ILIKE $1
+        ORDER BY name ASC
+        LIMIT 20
+        `,
+        [`%${q}%`]
+      );
+
+      return res.json({
+        users: result.rows.map(row => ({
+          id: Number(row.id),
+          name: row.name,
+          email: row.email,
+          avatar: row.avatar || null,
+          isAdmin: Boolean(row.is_admin),
+          createdAt: row.created_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/admin/users/search error:", error);
+      return res.status(500).json({ message: "検索できませんでした。" });
+    }
+
+  }
+);
+
+app.delete(
+  "/api/admin/users/:id",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const targetId = Number(req.params.id);
+
+      if (targetId === Number(req.session.userId)) {
+        return res.status(400).json({ message: "自分自身は削除できません。" });
+      }
+
+      const result = await pool.query(
+        `DELETE FROM users WHERE id = $1 RETURNING id`,
+        [targetId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "ユーザーが見つかりません。" });
+      }
+
+      return res.json({ message: "ユーザーを削除しました。" });
+
+    } catch (error) {
+      console.error("/api/admin/users/:id error:", error);
+      return res.status(500).json({ message: "削除できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 管理者：管理者権限の付与・剥奪
+// ==================================================
+
+app.post(
+  "/api/admin/users/:id/set-admin",
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const targetId = Number(req.params.id);
+      const makeAdmin = Boolean(req.body?.isAdmin);
+
+      if (!Number.isInteger(targetId) || targetId <= 0) {
+        return res.status(400).json({ message: "ユーザーが正しくありません。" });
+      }
+
+      if (!makeAdmin) {
+
+        if (targetId === Number(req.session.userId)) {
+          return res.status(400).json({ message: "自分自身の管理者権限は解除できません。" });
+        }
+
+        const adminCount = await pool.query(
+          `SELECT COUNT(*)::integer AS count FROM users WHERE is_admin = TRUE`
+        );
+
+        if (Number(adminCount.rows[0].count) <= 1) {
+          return res.status(400).json({ message: "最後の管理者の権限は解除できません。" });
+        }
+
+      }
+
+      const result = await pool.query(
+        `UPDATE users SET is_admin = $1 WHERE id = $2 RETURNING id, name`,
+        [makeAdmin, targetId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "ユーザーが見つかりません。" });
+      }
+
+      notifyUser(targetId, "admin status changed", { isAdmin: makeAdmin });
+
+      return res.json({
+        message: makeAdmin ? "管理者にしました。" : "管理者権限を解除しました。"
+      });
+
+    } catch (error) {
+      console.error("/api/admin/users/:id/set-admin error:", error);
+      return res.status(500).json({ message: "処理できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// 質問箱
+// ==================================================
+
+app.post(
+  "/api/questions",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const toUserId = Number(req.body?.toUserId);
+      const question = String(req.body?.question || "").trim().slice(0, 300);
+
+      if (!Number.isInteger(toUserId) || toUserId <= 0) {
+        return res.status(400).json({ message: "宛先が正しくありません。" });
+      }
+
+      if (!question) {
+        return res.status(400).json({ message: "質問を入力してください。" });
+      }
+
+      if (toUserId === Number(req.session.userId)) {
+        return res.status(400).json({ message: "自分自身には送れません。" });
+      }
+
+      await pool.query(
+        `INSERT INTO questions (to_user_id, from_user_id, question) VALUES ($1, $2, $3)`,
+        [toUserId, req.session.userId, question]
+      );
+
+      notifyUser(toUserId, "question received");
+
+      return res.json({ message: "質問を送りました。" });
+
+    } catch (error) {
+      console.error("/api/questions error:", error);
+      return res.status(500).json({ message: "質問を送れませんでした。" });
+    }
+
+  }
+);
+
+app.get(
+  "/api/questions/inbox",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const result = await pool.query(
+        `
+        SELECT id, question, answer, answered_at, created_at
+        FROM questions
+        WHERE to_user_id = $1
+        ORDER BY created_at DESC
+        LIMIT 200
+        `,
+        [req.session.userId]
+      );
+
+      return res.json({
+        questions: result.rows.map(row => ({
+          id: row.id,
+          question: row.question,
+          answer: row.answer || null,
+          answeredAt: row.answered_at || null,
+          createdAt: row.created_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/questions/inbox error:", error);
+      return res.status(500).json({ message: "質問箱を取得できませんでした。" });
+    }
+
+  }
+);
+
+app.post(
+  "/api/questions/:id/answer",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const id = Number(req.params.id);
+      const answer = String(req.body?.answer || "").trim().slice(0, 500);
+
+      if (!answer) {
+        return res.status(400).json({ message: "回答を入力してください。" });
+      }
+
+      const result = await pool.query(
+        `
+        UPDATE questions
+        SET answer = $1, answered_at = NOW()
+        WHERE id = $2 AND to_user_id = $3
+        RETURNING id
+        `,
+        [answer, id, req.session.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "質問が見つかりませんでした。" });
+      }
+
+      return res.json({ message: "回答しました。" });
+
+    } catch (error) {
+      console.error("/api/questions/:id/answer error:", error);
+      return res.status(500).json({ message: "回答できませんでした。" });
+    }
+
+  }
+);
+
+app.delete(
+  "/api/questions/:id",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const id = Number(req.params.id);
+
+      const result = await pool.query(
+        `DELETE FROM questions WHERE id = $1 AND to_user_id = $2 RETURNING id`,
+        [id, req.session.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ message: "見つかりませんでした。" });
+      }
+
+      return res.json({ message: "削除しました。" });
+
+    } catch (error) {
+      console.error("/api/questions/:id error:", error);
+      return res.status(500).json({ message: "削除できませんでした。" });
+    }
+
+  }
+);
+
+app.get(
+  "/api/questions/answered/:userId",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const userId = Number(req.params.userId);
+
+      const result = await pool.query(
+        `
+        SELECT id, question, answer, answered_at
+        FROM questions
+        WHERE to_user_id = $1 AND answer IS NOT NULL
+        ORDER BY answered_at DESC
+        LIMIT 50
+        `,
+        [userId]
+      );
+
+      return res.json({
+        questions: result.rows.map(row => ({
+          id: row.id,
+          question: row.question,
+          answer: row.answer,
+          answeredAt: row.answered_at
+        }))
+      });
+
+    } catch (error) {
+      console.error("/api/questions/answered/:userId error:", error);
+      return res.status(500).json({ message: "取得できませんでした。" });
+    }
+
+  }
+);
+
+// ==================================================
+// ダイレクトメッセージ一覧
+// ==================================================
+
+app.get(
+  "/api/dms",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+      const result = await pool.query(
+        `
+        SELECT
+          c.id,
+          CASE WHEN c.user1_id = $1 THEN c.user2_id ELSE c.user1_id END AS other_user_id,
+          CASE WHEN c.user1_id = $1 THEN u2.name ELSE u1.name END AS other_user_name,
+          m.text AS last_message,
+          m.created_at AS last_message_at
+        FROM dm_conversations c
+        INNER JOIN users u1 ON u1.id = c.user1_id
+        INNER JOIN users u2 ON u2.id = c.user2_id
+        LEFT JOIN LATERAL (
+          SELECT text, created_at
+          FROM dm_messages
+          WHERE conversation_id = c.id
+          ORDER BY created_at DESC, id DESC
+          LIMIT 1
+        ) m ON TRUE
+        WHERE c.user1_id = $1 OR c.user2_id = $1
+        ORDER BY COALESCE(m.created_at, c.created_at) DESC
+        `,
+        [req.session.userId]
+      );
+
+      return res.json({
+        dms: result.rows.map(row => ({
+          id: row.id,
+          otherUserId: Number(row.other_user_id),
+          otherUserName: row.other_user_name,
+          lastMessage: row.last_message || "",
+          lastMessageAt: row.last_message_at || null
+        }))
+      });
+    } catch (error) {
+      console.error("/api/dms error:", error);
+      return res.status(500).json({
+        message: "DM一覧を取得できませんでした。"
+      });
+    }
+  }
+);
+
+// ==================================================
+// 自分の参加中の部屋
+// ==================================================
+
+app.get(
+  "/api/rooms",
+  requireLogin,
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            r.id,
+            r.name,
+            r.invite_code,
+            r.owner_id,
+            r.created_at
+
+          FROM rooms r
+
+          INNER JOIN room_members rm
+            ON rm.room_id = r.id
+
+          WHERE rm.user_id = $1
+
+          ORDER BY
+            r.created_at ASC
+          `,
+          [
+            req.session.userId
+          ]
+        );
+
+      return res.json({
+        rooms:
+          result.rows.map(
+            formatRoom
+          )
+      });
+
+    } catch (error) {
+
+      console.error(
+        "/api/rooms error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          message:
+            "部屋一覧を取得できませんでした。"
+        });
+
+    }
+
+  }
+);
+
+// ==================================================
+// 登録
+// ==================================================
+
+app.post(
+  "/api/register",
+  async (req, res) => {
+
+    try {
+
+      const email =
+        normalizeEmail(
+          req.body.email
+        );
+
+      const name =
+        normalizeName(
+          req.body.name
+        );
+
+      const password =
+        String(
+          req.body.password || ""
+        );
+
+      if (!email) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "メールアドレスを入力してください。"
+          });
+
+      }
+
+      if (!name) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "名前を入力してください。"
+          });
+
+      }
+
+      if (
+        password.length < 8
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "パスワードは8文字以上にしてください。"
+          });
+
+      }
+
+      const emailCountResult =
+        await pool.query(
+          `
+          SELECT
+            COUNT(*)::integer AS count
+          FROM users
+          WHERE email = $1
+          `,
+          [
+            email
+          ]
+        );
+
+      const emailCount =
+        Number(
+          emailCountResult
+            .rows[0]
+            .count
+        );
+
+      if (
+        emailCount >= 5
+      ) {
+
+        return res
+          .status(409)
+          .json({
+            code:
+              "EMAIL_ACCOUNT_LIMIT",
+
+            message:
+              "このメールアドレスでは5個までアカウントを作成できます。"
+          });
+
+      }
+
+      const nameExists =
+        await pool.query(
+          `
+          SELECT id
+          FROM users
+          WHERE name = $1
+          LIMIT 1
+          `,
+          [
+            name
+          ]
+        );
+
+      if (
+        nameExists.rows.length > 0
+      ) {
+
+        return res
+          .status(409)
+          .json({
+            message:
+              "この名前は既に使用されています。別の名前を入力してください。"
+          });
+
+      }
+
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          12
+        );
+
+      const result =
+        await pool.query(
+          `
+          INSERT INTO users (
+            email,
+            name,
+            password_hash
+          )
+          VALUES (
+            $1,
+            $2,
+            $3
+          )
+          RETURNING
+            id,
+            email,
+            name,
+            avatar,
+            bio,
+            is_admin
+          `,
+          [
+            email,
+            name,
+            passwordHash
+          ]
+        );
+
+      const user =
+        result.rows[0];
+
+      req.session.userId =
+        user.id;
+
+      req.session.save(
+        (error) => {
+
+          if (error) {
+
+            console.error(
+              "register session save error:",
+              error
+            );
+
+            return res
+              .status(500)
+              .json({
+                message:
+                  "ログインセッションの保存に失敗しました。"
+              });
+
+          }
+
+          return res.json({
+            user:
+              sanitizeUser(
+                user
+              )
+          });
+
+        }
+      );
+
+    } catch (error) {
+
+      console.error(
+        "/api/register error:",
+        error
+      );
+
+      if (
+        error &&
+        error.code === "23505"
+      ) {
+
+        return res
+          .status(409)
+          .json({
+            message:
+              "この情報は既に使用されています。"
+          });
+
+      }
+
+      return res
+        .status(500)
+        .json({
+          message:
+            "登録に失敗しました。"
+        });
+
+    }
+
+  }
+);
+
+// ==================================================
+// ログイン
+// ==================================================
+
+app.post(
+  "/api/login",
+  async (req, res) => {
+
+    try {
+
+      const name =
+        normalizeName(
+          req.body.name
+        );
+
+      const password =
+        String(
+          req.body.password || ""
+        );
+
+      if (
+        !name ||
+        !password
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "名前とパスワードを入力してください。"
+          });
+
+      }
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            email,
+            name,
+            password_hash,
+            avatar,
+            bio,
+            is_admin
+          FROM users
+          WHERE name = $1
+          LIMIT 1
+          `,
+          [
+            name
+          ]
+        );
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res
+          .status(401)
+          .json({
+            message:
+              "名前またはパスワードが正しくありません。"
+          });
+
+      }
+
+      const user =
+        result.rows[0];
+
+      const valid =
+        await bcrypt.compare(
+          password,
+          user.password_hash
+        );
+
+      if (!valid) {
+
+        return res
+          .status(401)
+          .json({
+            message:
+              "名前またはパスワードが正しくありません。"
+          });
+
+      }
+
+      req.session.regenerate(
+        (error) => {
+
+          if (error) {
+
+            console.error(
+              "session regenerate error:",
+              error
+            );
+
+            return res
+              .status(500)
+              .json({
+                message:
+                  "ログインセッションの作成に失敗しました。"
+              });
+
+          }
+
+          req.session.userId =
+            user.id;
+
+          req.session.save(
+            (saveError) => {
+
+              if (saveError) {
+
+                console.error(
+                  "session save error:",
+                  saveError
+                );
+
+                return res
+                  .status(500)
+                  .json({
+                    message:
+                      "ログインセッションの保存に失敗しました。"
+                  });
+
+              }
+
+              console.log(
+                "Login successful:",
+                user.name,
+                "userId:",
+                user.id
+              );
+
+              return res.json({
+                user:
+                  sanitizeUser(
+                    user
+                  )
+              });
+
+            }
+          );
+
+        }
+      );
+
+    } catch (error) {
+
+      console.error(
+        "/api/login error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          message:
+            "ログインに失敗しました。"
+        });
+
+    }
+
+  }
+);
+
+// ==================================================
+// ログアウト
+// ==================================================
+
+app.post(
+  "/api/logout",
+  (req, res) => {
+
+    req.session.destroy(
+      (error) => {
+
+        if (error) {
+
+          console.error(
+            "/api/logout error:",
+            error
+          );
+
+          return res
+            .status(500)
+            .json({
+              message:
+                "ログアウトに失敗しました。"
+            });
+
+        }
+
+        res.clearCookie(
+          "connect.sid",
+          {
+            httpOnly: true,
+
+            secure:
+              process.env.NODE_ENV ===
+              "production",
+
+            sameSite: "lax"
+          }
+        );
+
+        return res.json({
+          success: true
+        });
+
+      }
+    );
+
+  }
+);
+
+// ==================================================
+// パスワード忘れ
+// ==================================================
+
+app.post(
+  "/api/forgot-password",
+  async (req, res) => {
+
+    try {
+
+      const email =
+        normalizeEmail(
+          req.body.email
+        );
+
+      if (!email) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "メールアドレスを入力してください。"
+          });
+
+      }
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            email,
+            name
+          FROM users
+          WHERE email = $1
+          ORDER BY id DESC
+          LIMIT 1
+          `,
+          [
+            email
+          ]
+        );
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res.json({
+          message:
+            "パスワード再設定の案内を送信しました。"
+        });
+
+      }
+
+      const user =
+        result.rows[0];
+
+      await pool.query(
+        `
+        UPDATE password_reset_tokens
+        SET used = TRUE
+        WHERE user_id = $1
+          AND used = FALSE
+        `,
+        [
+          user.id
+        ]
+      );
+
+      const token =
+        generateResetToken();
+
+      const tokenHash =
+        hashToken(token);
+
+      await pool.query(
+        `
+        INSERT INTO password_reset_tokens (
+          user_id,
+          token_hash,
+          expires_at
+        )
+        VALUES (
+          $1,
+          $2,
+          NOW() + INTERVAL '30 minutes'
+        )
+        `,
+        [
+          user.id,
+          tokenHash
+        ]
+      );
+
+      const baseUrl =
+        process.env.BASE_URL ||
+        `http://localhost:${PORT}`;
+
+      const resetUrl =
+        `${baseUrl}/reset-password.html?token=${token}`;
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "PASSWORD RESET URL"
+      );
+
+      console.log(
+        resetUrl
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      if (
+        process.env.SMTP_HOST &&
+        process.env.SMTP_USER &&
+        process.env.SMTP_PASS
+      ) {
+
+        const transporter =
+          nodemailer.createTransport({
+            host:
+              process.env.SMTP_HOST,
+
+            port:
+              Number(
+                process.env.SMTP_PORT ||
+                587
+              ),
+
+            secure:
+              String(
+                process.env.SMTP_SECURE
+              ) === "true",
+
+            auth: {
+              user:
+                process.env.SMTP_USER,
+
+              pass:
+                process.env.SMTP_PASS
+            }
+          });
+
+        await transporter.sendMail({
+          from:
+            process.env.MAIL_FROM ||
+            process.env.SMTP_USER,
+
+          to:
+            user.email,
+
+          subject:
+            "コンネついーと パスワード再設定",
+
+          text:
+            [
+              `${user.name}さん`,
+              "",
+              "コンネついーとのパスワード再設定を受け付けました。",
+              "",
+              "以下のリンクから新しいパスワードを設定してください。",
+              "",
+              resetUrl,
+              "",
+              "このリンクは30分間有効です。"
+            ].join("\n")
+        });
+
+      }
+
+      return res.json({
+        message:
+          "パスワード再設定の案内を送信しました。"
+      });
+
+    } catch (error) {
+
+      console.error(
+        "/api/forgot-password error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          message:
+            "パスワード再設定の処理に失敗しました。"
+        });
+
+    }
+
+  }
+);
+
+// ==================================================
+// パスワード再設定
+// ==================================================
+
+app.post(
+  "/api/reset-password",
+  async (req, res) => {
+
+    try {
+
+      const token =
+        String(
+          req.body.token || ""
+        ).trim();
+
+      const password =
+        String(
+          req.body.password || ""
+        );
+
+      if (!token) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "リセットトークンがありません。"
+          });
+
+      }
+
+      if (
+        password.length < 8
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "パスワードは8文字以上にしてください。"
+          });
+
+      }
+
+      const tokenHash =
+        hashToken(token);
+
+      const result =
+        await pool.query(
+          `
+          SELECT
+            id,
+            user_id
+          FROM password_reset_tokens
+          WHERE token_hash = $1
+            AND used = FALSE
+            AND expires_at > NOW()
+          LIMIT 1
+          `,
+          [
+            tokenHash
+          ]
+        );
+
+      if (
+        result.rows.length === 0
+      ) {
+
+        return res
+          .status(400)
+          .json({
+            message:
+              "このリセットリンクは無効または期限切れです。"
+          });
+
+      }
+
+      const resetToken =
+        result.rows[0];
+
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          12
+        );
+
+      await pool.query(
+        `
+        UPDATE users
+        SET password_hash = $1
+        WHERE id = $2
+        `,
+        [
+          passwordHash,
+          resetToken.user_id
+        ]
+      );
+
+      await pool.query(
+        `
+        UPDATE password_reset_tokens
+        SET used = TRUE
+        WHERE id = $1
+        `,
+        [
+          resetToken.id
+        ]
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          "パスワードを変更しました。"
+      });
+
+    } catch (error) {
+
+      console.error(
+        "/api/reset-password error:",
+        error
+      );
+
+      return res
+        .status(500)
+        .json({
+          message:
+            "パスワードの変更に失敗しました。"
+        });
+
+    }
+
+  }
+);
+
+// ==================================================
+// Socket.IO 認証
+// ==================================================
+
+io.use(
+  (socket, next) => {
+
+    const currentSession =
+      socket.request.session;
+
+    if (
+      !currentSession ||
+      !currentSession.userId
+    ) {
+
+      return next(
+        new Error(
+          "UNAUTHORIZED"
+        )
+      );
+
+    }
+
+    const userId =
+      Number(
+        currentSession.userId
+      );
+
+    if (
+      !Number.isInteger(userId) ||
+      userId <= 0
+    ) {
+
+      return next(
+        new Error(
+          "UNAUTHORIZED"
+        )
+      );
+
+    }
+
+    socket.userId =
+      userId;
+
+    next();
+
+  }
+);
+
+// ==================================================
+// オンライン状態管理
+// ==================================================
+
+// userId -> 接続中のソケット数（同じ人が複数タブを開く場合に対応）
+const onlineUserCounts = new Map();
+
+function markUserOnline(userId) {
+  const id = Number(userId);
+  onlineUserCounts.set(id, (onlineUserCounts.get(id) || 0) + 1);
+}
+
+function markUserOffline(userId) {
+  const id = Number(userId);
+  const count = (onlineUserCounts.get(id) || 0) - 1;
+  if (count <= 0) {
+    onlineUserCounts.delete(id);
+  } else {
+    onlineUserCounts.set(id, count);
+  }
+}
+
+function isUserOnline(userId) {
+  return onlineUserCounts.has(Number(userId));
+}
+
+// ==================================================
+// Socket.IO connection
+// ==================================================
+
+io.on(
+  "connection",
+  async (socket) => {
+
+    console.log(
+      "Socket connected:",
+      socket.id,
+      "user:",
+      socket.userId
+    );
+
+    let userResult;
+
+    try {
+
+      userResult =
+        await pool.query(
+          `
+          SELECT
+            id,
+            email,
+            name,
+            avatar,
+            bio,
+            is_admin
+          FROM users
+          WHERE id = $1
+          `,
+          [
+            socket.userId
+          ]
+        );
+
+    } catch (error) {
+
+      console.error(
+        "Socket user query error:",
+        error
+      );
+
+      socket.disconnect();
+
+      return;
+
+    }
+
+    if (
+      userResult.rows.length === 0
+    ) {
+
+      socket.disconnect();
+
+      return;
+
+    }
+
+    const user =
+      userResult.rows[0];
+
+    socket.userId = Number(user.id);
+
+    console.log(
+      "Socket user authenticated:",
+      JSON.stringify(user.name),
+      user.email
+    );
+
+    const wasOffline = !isUserOnline(user.id);
+    markUserOnline(user.id);
+
+    if (wasOffline) {
+      broadcastPresence(user.id, true);
+    }
+
+    // ==================================================
+    // 初期表示
+    // ==================================================
+
+    await joinCasual(
+      socket
+    );
+
+    // ==================================================
+    // 初期部屋一覧
+    // ==================================================
+
+    await sendMyRooms(
+      socket,
+      user.id
+    );
+
+    // ==================================================
+    // 雑談
+    // ==================================================
 
     socket.on(
-      "connect",
-      () => {
+      "join casual",
+      async () => {
 
-        console.log(
-          "Socket connected:",
-          socket.id
+        await joinCasual(
+          socket
         );
 
-        setConnection(
-          true
+      }
+    );
+
+    // ==================================================
+    // 自分の部屋一覧
+    // ==================================================
+
+    socket.on(
+      "get my rooms",
+      async () => {
+
+        await sendMyRooms(
+          socket,
+          user.id
         );
 
-        socket.emit(
-          "get my rooms"
-        );
+      }
+    );
 
-        socket.emit("get my dms");
+    socket.on(
+      "get my dms",
+      async () => {
+        await sendMyDMs(socket, user.id);
+      }
+    );
 
-        // フレンド一覧・リクエストも読み込む
-        loadFriends();
+    socket.on(
+      "start dm",
+      async (data) => {
+        try {
+          const targetUserId = Number(data?.userId);
 
-        if (!hasHandledInitialRoute) {
+          if (!Number.isInteger(targetUserId) || targetUserId <= 0) {
+            socket.emit("dm error", { message: "ユーザーを選択してください。" });
+            return;
+          }
 
-          hasHandledInitialRoute = true;
+          if (targetUserId === Number(user.id)) {
+            socket.emit("dm error", { message: "自分自身にはDMできません。" });
+            return;
+          }
 
-          const initialRoute = parseRouteFromLocation();
+          const target = await pool.query(
+            `SELECT id, name FROM users WHERE id = $1 LIMIT 1`,
+            [targetUserId]
+          );
 
-          if (initialRoute && initialRoute.type !== "casual") {
+          if (target.rows.length === 0) {
+            socket.emit("dm error", { message: "ユーザーが見つかりません。" });
+            return;
+          }
 
-            navigateToRoute(initialRoute);
+          const user1 = Math.min(Number(user.id), targetUserId);
+          const user2 = Math.max(Number(user.id), targetUserId);
+          const conversationId = `dm_${user1}_${user2}`;
 
-            setTimeout(() => navigateToRoute(initialRoute), 1000);
+          await pool.query(
+            `
+            INSERT INTO dm_conversations (id, user1_id, user2_id)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user1_id, user2_id) DO NOTHING
+            `,
+            [conversationId, user1, user2]
+          );
+
+          leaveCurrentRooms(socket);
+          socket.join(conversationId);
+
+          socket.emit("dm opened", {
+            id: conversationId,
+            otherUserId: targetUserId,
+            otherUserName: target.rows[0].name
+          });
+
+          await sendPreviousDMMessages(socket, conversationId);
+          await sendMyDMs(socket, user.id);
+        } catch (error) {
+          console.error("start dm error:", error);
+          socket.emit("dm error", { message: "DMを開けませんでした。" });
+        }
+      }
+    );
+
+    socket.on(
+      "open dm",
+      async (data) => {
+        try {
+          const conversationId = String(data?.conversationId || "").trim();
+
+          if (!conversationId) {
+            socket.emit("dm error", { message: "DMを選択してください。" });
+            return;
+          }
+
+          const result = await pool.query(
+            `
+            SELECT
+              c.id,
+              CASE WHEN c.user1_id = $1 THEN c.user2_id ELSE c.user1_id END AS other_user_id,
+              CASE WHEN c.user1_id = $1 THEN u2.name ELSE u1.name END AS other_user_name
+            FROM dm_conversations c
+            INNER JOIN users u1 ON u1.id = c.user1_id
+            INNER JOIN users u2 ON u2.id = c.user2_id
+            WHERE c.id = $2
+              AND (c.user1_id = $1 OR c.user2_id = $1)
+            LIMIT 1
+            `,
+            [user.id, conversationId]
+          );
+
+          if (result.rows.length === 0) {
+            socket.emit("dm error", { message: "このDMにはアクセスできません。" });
+            return;
+          }
+
+          const dm = result.rows[0];
+          leaveCurrentRooms(socket);
+          socket.join(conversationId);
+
+          socket.emit("dm opened", {
+            id: dm.id,
+            otherUserId: Number(dm.other_user_id),
+            otherUserName: dm.other_user_name
+          });
+
+          await sendPreviousDMMessages(socket, conversationId);
+        } catch (error) {
+          console.error("open dm error:", error);
+          socket.emit("dm error", { message: "DMを開けませんでした。" });
+        }
+      }
+    );
+
+    socket.on(
+      "dm message",
+      async (data) => {
+        try {
+          const conversationId = String(data?.conversationId || "").trim();
+          const text = String(data?.text || "").trim();
+          const image = data?.image ? String(data.image) : null;
+
+          if (!conversationId || (!text && !image)) return;
+
+          if (text.length > 5000) {
+            socket.emit("dm message error", { message: "メッセージが長すぎます。" });
+            return;
+          }
+
+          if (!isValidImageDataUrl(image, 3000000)) {
+            socket.emit("dm message error", { message: "画像を送信できませんでした。形式またはサイズを確認してください。" });
+            return;
+          }
+
+          const access = await pool.query(
+            `
+            SELECT 1
+            FROM dm_conversations
+            WHERE id = $1
+              AND (user1_id = $2 OR user2_id = $2)
+            LIMIT 1
+            `,
+            [conversationId, user.id]
+          );
+
+          if (access.rows.length === 0 || !socket.rooms.has(conversationId)) {
+            socket.emit("dm message error", { message: "このDMには参加していません。" });
+            return;
+          }
+
+          const result = await pool.query(
+            `
+            INSERT INTO dm_messages (conversation_id, user_id, username, text, image)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id, conversation_id, user_id, username, text, image, created_at
+            `,
+            [conversationId, user.id, user.name, text, image]
+          );
+
+          const row = result.rows[0];
+          const message = {
+            id: `dm-${row.id}`,
+            room: row.conversation_id,
+            userId: Number(row.user_id),
+            username: row.username,
+            avatar: user.avatar || null,
+            text: row.text,
+            image: row.image || null,
+            createdAt: row.created_at,
+            edited: false,
+            isDm: true
+          };
+
+          io.to(conversationId).emit("dm message", message);
+          await sendMyDMsToUsers(conversationId);
+          await processMentions(text, null, user.id, user.name, true, conversationId);
+        } catch (error) {
+          console.error("dm message error:", error);
+          socket.emit("dm message error", { message: "DMを送信できませんでした。" });
+        }
+      }
+    );
+
+    // ==================================================
+    // 入力中インジケーター
+    // ==================================================
+
+    socket.on(
+      "typing",
+      (data) => {
+
+        const room = String(data?.room || "").trim();
+
+        if (!room || !socket.rooms.has(room)) {
+          return;
+        }
+
+        socket.to(room).emit("user typing", {
+          room,
+          userId: Number(user.id),
+          username: user.name
+        });
+
+      }
+    );
+
+    // ==================================================
+    // メッセージ送信
+    // ==================================================
+
+    socket.on(
+      "chat message",
+      async (data) => {
+
+        try {
+
+          const room =
+            String(
+              data?.room || ""
+            ).trim();
+
+          const text =
+            String(
+              data?.text || ""
+            ).trim();
+
+          const image =
+            data?.image
+              ? String(data.image)
+              : null;
+
+          if (
+            !room ||
+            (!text && !image)
+          ) {
 
             return;
 
           }
 
+          if (
+            text.length > 5000
+          ) {
+
+            socket.emit(
+              "message send error",
+              {
+                message:
+                  "メッセージが長すぎます。"
+              }
+            );
+
+            return;
+
+          }
+
+          if (!isValidImageDataUrl(image, 3000000)) {
+
+            socket.emit(
+              "message send error",
+              {
+                message:
+                  "画像を送信できませんでした。形式またはサイズを確認してください。"
+              }
+            );
+
+            return;
+
+          }
+
+          // Socket上で参加しているか確認
+          if (
+            !socket.rooms.has(room)
+          ) {
+
+            socket.emit(
+              "message send error",
+              {
+                message:
+                  "この部屋には参加していません。"
+              }
+            );
+
+            return;
+
+          }
+
+          // 雑談以外はDBでも確認
+          if (
+            room !== "casual"
+          ) {
+
+            const membership =
+              await pool.query(
+                `
+                SELECT 1
+                FROM room_members
+                WHERE room_id = $1
+                  AND user_id = $2
+                LIMIT 1
+                `,
+                [
+                  room,
+                  user.id
+                ]
+              );
+
+            if (
+              membership.rows.length === 0
+            ) {
+
+              socket.emit(
+                "message send error",
+                {
+                  message:
+                    "この部屋には参加していません。"
+                }
+              );
+
+              return;
+
+            }
+
+          }
+
+          // ==================================================
+          // Reply
+          // ==================================================
+
+          let replyToId = null;
+          let replyToUsername = null;
+          let replyToText = null;
+
+          if (
+            data?.replyToId
+          ) {
+
+            const replyResult =
+              await pool.query(
+                `
+                SELECT
+                  id,
+                  username,
+                  text
+                FROM messages
+                WHERE id = $1
+                LIMIT 1
+                `,
+                [
+                  data.replyToId
+                ]
+              );
+
+            if (
+              replyResult.rows.length > 0
+            ) {
+
+              const reply =
+                replyResult.rows[0];
+
+              replyToId =
+                reply.id;
+
+              replyToUsername =
+                reply.username;
+
+              replyToText =
+                reply.text;
+
+            }
+
+          }
+
+          const result =
+            await pool.query(
+              `
+              INSERT INTO messages (
+                room,
+                user_id,
+                username,
+                text,
+                image,
+                reply_to_id,
+                reply_to_username,
+                reply_to_text
+              )
+              VALUES (
+                $1,
+                $2,
+                $3,
+                $4,
+                $5,
+                $6,
+                $7,
+                $8
+              )
+              RETURNING
+                id,
+                room,
+                user_id,
+                username,
+                text,
+                image,
+                reply_to_id,
+                reply_to_username,
+                reply_to_text,
+                edited,
+                created_at
+              `,
+              [
+                room,
+                user.id,
+                user.name,
+                text,
+                image,
+                replyToId,
+                replyToUsername,
+                replyToText
+              ]
+            );
+
+          const message =
+            formatMessage(
+              result.rows[0]
+            );
+
+          message.avatar =
+            user.avatar || null;
+
+          io
+            .to(room)
+            .emit(
+              "chat message",
+              message
+            );
+
+          await processMentions(text, room, user.id, user.name, false);
+
+        } catch (error) {
+
+          console.error(
+            "chat message error:",
+            error
+          );
+
+          socket.emit(
+            "message send error",
+            {
+              message:
+                "メッセージを送信できませんでした。"
+            }
+          );
+
         }
 
-        // 再接続・ページ更新時に、直前まで見ていた
-        // 部屋/DMのメッセージを再取得する
-        requestActiveRoomData();
+      }
+    );
 
-        // サーバー起動直後などで初期化に時間がかかる場合に備え、
-        // 少し時間を置いてもう一度リクエストする（安全策）
-        setTimeout(
-          requestActiveRoomData,
-          1000
-        );
+    // ==================================================
+    // 部屋作成
+    // ==================================================
+
+    socket.on(
+      "create room",
+      async (data) => {
+
+        try {
+
+          const name =
+            String(
+              data?.name || ""
+            ).trim();
+
+          if (!name) {
+
+            socket.emit(
+              "create room error",
+              {
+                message:
+                  "部屋の名前を入力してください。"
+              }
+            );
+
+            return;
+
+          }
+
+          if (
+            name.length > 100
+          ) {
+
+            socket.emit(
+              "create room error",
+              {
+                message:
+                  "部屋の名前は100文字以内にしてください。"
+              }
+            );
+
+            return;
+
+          }
+
+          const id =
+            generateRoomId();
+
+          let inviteCode;
+
+          // ==================================================
+          // 招待コード生成
+          // ==================================================
+
+          for (;;) {
+
+            inviteCode =
+              generateInviteCode();
+
+            const exists =
+              await pool.query(
+                `
+                SELECT id
+                FROM rooms
+                WHERE invite_code = $1
+                LIMIT 1
+                `,
+                [
+                  inviteCode
+                ]
+              );
+
+            if (
+              exists.rows.length === 0
+            ) {
+
+              break;
+
+            }
+
+          }
+
+          const client =
+            await pool.connect();
+
+          try {
+
+            await client.query(
+              "BEGIN"
+            );
+
+            // ==================================================
+            // Room作成
+            // ==================================================
+
+            const roomResult =
+              await client.query(
+                `
+                INSERT INTO rooms (
+                  id,
+                  name,
+                  invite_code,
+                  owner,
+                  owner_id
+                )
+                VALUES (
+                  $1,
+                  $2,
+                  $3,
+                  $4,
+                  $5
+                )
+                RETURNING
+                  id,
+                  name,
+                  invite_code,
+                  owner,
+                  owner_id,
+                  created_at
+                `,
+                [
+                  id,
+                  name,
+                  inviteCode,
+                  user.name,
+                  user.id
+                ]
+              );
+
+            const room =
+              roomResult.rows[0];
+
+            // ==================================================
+            // 作成者をメンバーに追加
+            // ==================================================
+
+            await client.query(
+              `
+              INSERT INTO room_members (
+                room_id,
+                user_id
+              )
+              VALUES (
+                $1,
+                $2
+              )
+              ON CONFLICT (
+                room_id,
+                user_id
+              )
+              DO NOTHING
+              `,
+              [
+                room.id,
+                user.id
+              ]
+            );
+
+            // ==================================================
+            // デフォルトチャンネル作成
+            // ==================================================
+
+            await client.query(
+              `
+              INSERT INTO channels (id, room_id, name, position)
+              VALUES ($1, $1, 'general', 0)
+              ON CONFLICT (id) DO NOTHING
+              `,
+              [room.id]
+            );
+
+            await client.query(
+              "COMMIT"
+            );
+
+            // ==================================================
+            // 作成者を部屋へ移動
+            // ==================================================
+
+            leaveCurrentRooms(
+              socket
+            );
+
+            await socket.join(
+              room.id
+            );
+
+            await socket.join(
+              `server-${room.id}`
+            );
+
+            // ==================================================
+            // 作成成功
+            // ==================================================
+
+            socket.emit(
+              "room created",
+              formatRoom(room)
+            );
+
+            // ==================================================
+            // メッセージ
+            // ==================================================
+
+            await sendPreviousMessages(
+              socket,
+              room.id
+            );
+
+            await sendRoomMembers(
+              socket,
+              room.id
+            );
+
+            await sendServerChannels(
+              socket,
+              room.id
+            );
+
+            // ==================================================
+            // 部屋一覧
+            // ==================================================
+
+            await sendMyRooms(
+              socket,
+              user.id
+            );
+
+            console.log(
+              "Room created:",
+              room.id,
+              room.name,
+              "owner:",
+              user.id
+            );
+
+          } catch (transactionError) {
+
+            await client.query(
+              "ROLLBACK"
+            );
+
+            throw transactionError;
+
+          } finally {
+
+            client.release();
+
+          }
+
+        } catch (error) {
+
+          console.error(
+            "create room error:",
+            error
+          );
+
+          socket.emit(
+            "create room error",
+            {
+              message:
+                "部屋を作成できませんでした。もう一度お試しください。"
+            }
+          );
+
+        }
 
       }
     );
 
     // ==================================================
-    // フレンド申請・承認のリアルタイム反映
+    // 部屋名からURLを解決する（共有リンク用）
     // ==================================================
 
     socket.on(
-      "friend request update",
-      () => {
-        loadFriends();
-      }
-    );
+      "resolve room path",
+      async (data) => {
 
-    socket.on(
-      "friend request received",
-      (data) => {
+        try {
 
-        addNotification(
-          "friend",
-          `${data?.fromName || "誰か"}さんからフレンド申請が届きました`,
-          () => openFriendsModal()
-        );
+          const name = String(data?.name || "").trim();
 
-      }
-    );
+          if (!name) return;
 
-    socket.on(
-      "friend request accepted",
-      (data) => {
+          // すでに参加している同名の部屋があれば優先する
+          const memberMatch = await pool.query(
+            `
+            SELECT r.id, r.name
+            FROM rooms r
+            INNER JOIN room_members rm ON rm.room_id = r.id
+            WHERE rm.user_id = $1 AND r.name = $2
+            ORDER BY r.created_at DESC
+            LIMIT 1
+            `,
+            [user.id, name]
+          );
 
-        addNotification(
-          "friend",
-          `${data?.byName || "誰か"}さんとフレンドになりました`,
-          () => openFriendsModal()
-        );
+          if (memberMatch.rows.length > 0) {
+
+            socket.emit("room path resolved", {
+              name,
+              found: true,
+              member: true,
+              roomId: memberMatch.rows[0].id
+            });
+
+            return;
+
+          }
+
+          const anyMatch = await pool.query(
+            `
+            SELECT id, name
+            FROM rooms
+            WHERE name = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            `,
+            [name]
+          );
+
+          if (anyMatch.rows.length === 0) {
+
+            socket.emit("room path resolved", {
+              name,
+              found: false
+            });
+
+            return;
+
+          }
+
+          socket.emit("room path resolved", {
+            name,
+            found: true,
+            member: false,
+            roomId: anyMatch.rows[0].id
+          });
+
+        } catch (error) {
+
+          console.error("resolve room path error:", error);
+
+          socket.emit("room path resolved", {
+            name: data?.name || "",
+            found: false
+          });
+
+        }
 
       }
     );
 
     // ==================================================
-    // Disconnect
+    // 部屋参加
+    // ==================================================
+
+    socket.on(
+      "join room",
+      async (data) => {
+
+        try {
+
+          const code =
+            String(
+              data?.code || ""
+            )
+              .trim()
+              .toUpperCase();
+
+          if (!code) {
+
+            socket.emit(
+              "join room error",
+              {
+                message:
+                  "招待コードを入力してください。"
+              }
+            );
+
+            return;
+
+          }
+
+          const result =
+            await pool.query(
+              `
+              SELECT
+                id,
+                name,
+                invite_code,
+                owner_id,
+                created_at
+              FROM rooms
+              WHERE invite_code = $1
+              LIMIT 1
+              `,
+              [
+                code
+              ]
+            );
+
+          if (
+            result.rows.length === 0
+          ) {
+
+            socket.emit(
+              "join room error",
+              {
+                message:
+                  "部屋が見つかりません。"
+              }
+            );
+
+            return;
+
+          }
+
+          const room =
+            result.rows[0];
+
+          // ==================================================
+          // メンバー登録
+          // ==================================================
+
+          await pool.query(
+            `
+            INSERT INTO room_members (
+              room_id,
+              user_id
+            )
+            VALUES (
+              $1,
+              $2
+            )
+            ON CONFLICT (
+              room_id,
+              user_id
+            )
+            DO NOTHING
+            `,
+            [
+              room.id,
+              user.id
+            ]
+          );
+
+          // ==================================================
+          // 部屋移動
+          // ==================================================
+
+          leaveCurrentRooms(
+            socket
+          );
+
+          await socket.join(
+            room.id
+          );
+
+          await socket.join(
+            `server-${room.id}`
+          );
+
+          socket.emit(
+            "room joined",
+            formatRoom(room)
+          );
+
+          await sendPreviousMessages(
+            socket,
+            room.id
+          );
+
+          await sendRoomMembers(
+            socket,
+            room.id
+          );
+
+          await sendServerChannels(
+            socket,
+            room.id
+          );
+
+          // ==================================================
+          // 参加中一覧更新
+          // ==================================================
+
+          await sendMyRooms(
+            socket,
+            user.id
+          );
+
+          console.log(
+            "Room joined:",
+            room.id,
+            "user:",
+            user.id
+          );
+
+        } catch (error) {
+
+          console.error(
+            "join room error:",
+            error
+          );
+
+          socket.emit(
+            "join room error",
+            {
+              message:
+                "部屋に参加できませんでした。"
+            }
+          );
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // 自分の部屋を開く
+    // ==================================================
+
+    socket.on(
+      "open my room",
+      async (data) => {
+
+        try {
+
+          const roomId =
+            String(
+              data?.roomId || ""
+            ).trim();
+
+          if (!roomId) {
+            return;
+          }
+
+          const result =
+            await pool.query(
+              `
+              SELECT
+                r.id,
+                r.name,
+                r.invite_code,
+                r.owner_id,
+                r.created_at
+
+              FROM rooms r
+
+              INNER JOIN room_members rm
+                ON rm.room_id = r.id
+
+              WHERE r.id = $1
+                AND rm.user_id = $2
+
+              LIMIT 1
+              `,
+              [
+                roomId,
+                user.id
+              ]
+            );
+
+          if (
+            result.rows.length === 0
+          ) {
+
+            socket.emit(
+              "room open error",
+              {
+                message:
+                  "この部屋には参加していません。"
+              }
+            );
+
+            await sendMyRooms(
+              socket,
+              user.id
+            );
+
+            return;
+
+          }
+
+          const room =
+            result.rows[0];
+
+          leaveCurrentRooms(
+            socket
+          );
+
+          await socket.join(
+            room.id
+          );
+
+          await socket.join(
+            `server-${room.id}`
+          );
+
+          socket.emit(
+            "room opened",
+            formatRoom(room)
+          );
+
+          await sendPreviousMessages(
+            socket,
+            room.id
+          );
+
+          await sendRoomMembers(
+            socket,
+            room.id
+          );
+
+          await sendServerChannels(
+            socket,
+            room.id
+          );
+
+        } catch (error) {
+
+          console.error(
+            "open my room error:",
+            error
+          );
+
+          socket.emit(
+            "room open error",
+            {
+              message:
+                "部屋を開けませんでした。"
+            }
+          );
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // チャンネル一覧取得
+    // ==================================================
+
+    socket.on(
+      "get channels",
+      async (data) => {
+
+        const roomId = String(data?.roomId || "").trim();
+
+        if (!roomId) return;
+
+        await sendServerChannels(socket, roomId);
+
+      }
+    );
+
+    // ==================================================
+    // チャンネルを開く
+    // ==================================================
+
+    socket.on(
+      "open channel",
+      async (data) => {
+
+        try {
+
+          const channelId = String(data?.channelId || "").trim();
+
+          if (!channelId) return;
+
+          const result = await pool.query(
+            `
+            SELECT
+              c.id,
+              c.name,
+              c.room_id,
+              r.name AS room_name,
+              r.owner_id
+            FROM channels c
+            INNER JOIN rooms r ON r.id = c.room_id
+            INNER JOIN room_members rm ON rm.room_id = c.room_id
+            WHERE c.id = $1 AND rm.user_id = $2
+            LIMIT 1
+            `,
+            [channelId, user.id]
+          );
+
+          if (result.rows.length === 0) {
+
+            socket.emit("room open error", {
+              message: "このチャンネルには参加していません。"
+            });
+
+            return;
+
+          }
+
+          const channel = result.rows[0];
+
+          leaveCurrentRooms(socket);
+
+          await socket.join(channel.id);
+          await socket.join(`server-${channel.room_id}`);
+
+          socket.emit("channel opened", {
+            id: channel.id,
+            name: channel.name,
+            roomId: channel.room_id,
+            roomName: channel.room_name,
+            ownerId: channel.owner_id !== null ? Number(channel.owner_id) : null
+          });
+
+          await sendPreviousMessages(socket, channel.id);
+          await sendRoomMembers(socket, channel.room_id);
+          await sendServerChannels(socket, channel.room_id);
+
+        } catch (error) {
+
+          console.error("open channel error:", error);
+
+          socket.emit("room open error", {
+            message: "チャンネルを開けませんでした。"
+          });
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // チャンネル作成（サーバーのオーナーのみ）
+    // ==================================================
+
+    socket.on(
+      "create channel",
+      async (data) => {
+
+        try {
+
+          const roomId = String(data?.roomId || "").trim();
+
+          const name =
+            String(data?.name || "").trim().slice(0, 50);
+
+          if (!roomId || !name) {
+
+            socket.emit("create channel error", {
+              message: "チャンネル名を入力してください。"
+            });
+
+            return;
+
+          }
+
+          const roomResult = await pool.query(
+            `SELECT id, owner_id FROM rooms WHERE id = $1 LIMIT 1`,
+            [roomId]
+          );
+
+          if (roomResult.rows.length === 0) {
+            socket.emit("create channel error", { message: "サーバーが見つかりません。" });
+            return;
+          }
+
+          const room = roomResult.rows[0];
+
+          if (
+            room.owner_id === null ||
+            Number(room.owner_id) !== Number(user.id)
+          ) {
+
+            socket.emit("create channel error", {
+              message: "チャンネルを作成できるのはサーバーのオーナーだけです。"
+            });
+
+            return;
+
+          }
+
+          const positionResult = await pool.query(
+            `SELECT COALESCE(MAX(position), -1) + 1 AS next_position FROM channels WHERE room_id = $1`,
+            [roomId]
+          );
+
+          const position = Number(positionResult.rows[0].next_position) || 0;
+
+          const channelId = "channel_" + crypto.randomBytes(8).toString("hex");
+
+          await pool.query(
+            `INSERT INTO channels (id, room_id, name, position) VALUES ($1, $2, $3, $4)`,
+            [channelId, roomId, name, position]
+          );
+
+          io.to(`server-${roomId}`).emit("channels updated", { roomId });
+
+        } catch (error) {
+
+          console.error("create channel error:", error);
+
+          socket.emit("create channel error", {
+            message: "チャンネルを作成できませんでした。"
+          });
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // 部屋削除
+    // ==================================================
+    //
+    // ★ この処理は connection の中だけに置く。
+    // 元コードの start() 後にあった
+    // 重複した delete room は削除済み。
+    //
+
+    socket.on(
+      "delete room",
+      async (data) => {
+
+        const roomId =
+          String(
+            data?.roomId || ""
+          ).trim();
+
+        try {
+
+          if (!roomId) {
+
+            socket.emit(
+              "delete room error",
+              {
+                message:
+                  "削除する部屋が指定されていません。"
+              }
+            );
+
+            return;
+
+          }
+
+          // ==================================================
+          // 所有者確認
+          // ==================================================
+
+          const roomResult =
+            await pool.query(
+              `
+              SELECT
+                id,
+                name,
+                invite_code,
+                owner_id,
+                created_at
+              FROM rooms
+              WHERE id = $1
+              LIMIT 1
+              `,
+              [
+                roomId
+              ]
+            );
+
+          if (
+            roomResult.rows.length === 0
+          ) {
+
+            socket.emit(
+              "delete room error",
+              {
+                message:
+                  "部屋が見つかりません。"
+              }
+            );
+
+            // 念のため一覧更新
+            await sendMyRooms(
+              socket,
+              user.id
+            );
+
+            return;
+
+          }
+
+          const room =
+            roomResult.rows[0];
+
+          // ==================================================
+          // owner_id が自分か確認
+          // ==================================================
+
+          if (
+            room.owner_id === null ||
+            Number(room.owner_id) !==
+              Number(user.id)
+          ) {
+
+            socket.emit(
+              "delete room error",
+              {
+                message:
+                  "自分が作成した部屋だけ削除できます。"
+              }
+            );
+
+            return;
+
+          }
+
+          // ==================================================
+          // その部屋（全チャンネル含む）にいるSocketを取得
+          // ==================================================
+
+          const socketsInRoom =
+            io.sockets.adapter.rooms.get(
+              `server-${roomId}`
+            );
+
+          const targetSockets =
+            socketsInRoom
+              ? Array.from(
+                  socketsInRoom
+                )
+              : [];
+
+          // ==================================================
+          // DBから削除
+          //
+          // room_members:
+          // rooms ON DELETE CASCADE
+          //
+          // owner_id:
+          // rooms削除時に影響
+          //
+          // messages:
+          // room文字列なので手動削除
+          // ==================================================
+
+          const client =
+            await pool.connect();
+
+          try {
+
+            await client.query(
+              "BEGIN"
+            );
+
+            // メッセージ削除
+            await client.query(
+              `
+              DELETE FROM messages
+              WHERE room = $1
+              `,
+              [
+                roomId
+              ]
+            );
+
+            // Room削除
+            //
+            // owner_idも条件に入れることで、
+            // 最後まで所有者チェックを行う。
+            const deleteResult =
+              await client.query(
+                `
+                DELETE FROM rooms
+                WHERE id = $1
+                  AND owner_id = $2
+                RETURNING
+                  id,
+                  name,
+                  invite_code,
+                  owner_id
+                `,
+                [
+                  roomId,
+                  user.id
+                ]
+              );
+
+            if (
+              deleteResult.rows.length === 0
+            ) {
+
+              await client.query(
+                "ROLLBACK"
+              );
+
+              socket.emit(
+                "delete room error",
+                {
+                  message:
+                    "部屋を削除できませんでした。"
+                }
+              );
+
+              return;
+
+            }
+
+            await client.query(
+              "COMMIT"
+            );
+
+          } catch (deleteError) {
+
+            await client.query(
+              "ROLLBACK"
+            );
+
+            throw deleteError;
+
+          } finally {
+
+            client.release();
+
+          }
+
+          // ==================================================
+          // Socket.IOから該当部屋を削除
+          // ==================================================
+
+          for (
+            const socketId of
+            targetSockets
+          ) {
+
+            const targetSocket =
+              io.sockets.sockets.get(
+                socketId
+              );
+
+            if (!targetSocket) {
+              continue;
+            }
+
+            targetSocket.leave(
+              roomId
+            );
+
+            // 削除されたことを通知
+            targetSocket.emit(
+              "room deleted",
+              {
+                roomId
+              }
+            );
+
+            // 削除された部屋を開いていたユーザーを
+            // 雑談へ移動
+            await joinCasual(
+              targetSocket
+            );
+
+            // 各ユーザーの一覧を更新
+            await sendMyRooms(
+              targetSocket,
+              targetSocket.userId
+            );
+
+          }
+
+          // ==================================================
+          // 念のため削除した本人の状態を確認
+          // ==================================================
+
+          if (
+            !targetSockets.includes(
+              socket.id
+            )
+          ) {
+
+            socket.emit(
+              "room deleted",
+              {
+                roomId
+              }
+            );
+
+            await sendMyRooms(
+              socket,
+              user.id
+            );
+
+          }
+
+          console.log(
+            "Room deleted:",
+            roomId,
+            "by user:",
+            user.id
+          );
+
+        } catch (error) {
+
+          console.error(
+            "delete room error:",
+            error
+          );
+
+          socket.emit(
+            "delete room error",
+            {
+              message:
+                "部屋を削除できませんでした。"
+            }
+          );
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // メッセージ編集
+    // ==================================================
+
+    socket.on(
+      "edit message",
+      async (data) => {
+
+        try {
+
+          const id =
+            Number(
+              data?.id
+            );
+
+          const text =
+            String(
+              data?.text || ""
+            ).trim();
+
+          if (
+            !Number.isInteger(id) ||
+            !text
+          ) {
+
+            return;
+
+          }
+
+          if (
+            text.length > 5000
+          ) {
+
+            socket.emit(
+              "message edit error",
+              {
+                message:
+                  "メッセージが長すぎます。"
+              }
+            );
+
+            return;
+
+          }
+
+          const result =
+            await pool.query(
+              `
+              UPDATE messages
+
+              SET
+                text = $1,
+                edited = TRUE
+
+              WHERE id = $2
+                AND user_id = $3
+
+              RETURNING
+                id,
+                room,
+                user_id,
+                username,
+                text,
+                reply_to_id,
+                reply_to_username,
+                reply_to_text,
+                edited,
+                created_at
+              `,
+              [
+                text,
+                id,
+                user.id
+              ]
+            );
+
+          if (
+            result.rows.length === 0
+          ) {
+
+            socket.emit(
+              "message edit error",
+              {
+                message:
+                  "このコメントを編集できません。"
+              }
+            );
+
+            return;
+
+          }
+
+          const message =
+            formatMessage(
+              result.rows[0]
+            );
+
+          message.avatar =
+            user.avatar || null;
+
+          io
+            .to(message.room)
+            .emit(
+              "message edited",
+              message
+            );
+
+        } catch (error) {
+
+          console.error(
+            "edit message error:",
+            error
+          );
+
+          socket.emit(
+            "message edit error",
+            {
+              message:
+                "コメントを編集できませんでした。"
+            }
+          );
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // メッセージ削除
+    // ==================================================
+
+    socket.on(
+      "delete message",
+      async (data) => {
+
+        try {
+
+          const id =
+            Number(
+              data?.id
+            );
+
+          if (
+            !Number.isInteger(id)
+          ) {
+
+            return;
+
+          }
+
+          const result =
+            await pool.query(
+              `
+              DELETE FROM messages
+
+              WHERE id = $1
+                AND user_id = $2
+
+              RETURNING
+                id,
+                room
+              `,
+              [
+                id,
+                user.id
+              ]
+            );
+
+          if (
+            result.rows.length === 0
+          ) {
+
+            socket.emit(
+              "message delete error",
+              {
+                message:
+                  "このコメントを削除できません。"
+              }
+            );
+
+            return;
+
+          }
+
+          const message =
+            result.rows[0];
+
+          io
+            .to(message.room)
+            .emit(
+              "message deleted",
+              {
+                id:
+                  message.id,
+
+                room:
+                  message.room
+              }
+            );
+
+        } catch (error) {
+
+          console.error(
+            "delete message error:",
+            error
+          );
+
+          socket.emit(
+            "message delete error",
+            {
+              message:
+                "コメントを削除できませんでした。"
+            }
+          );
+
+        }
+
+      }
+    );
+
+    // ==================================================
+    // リアクション
+    // ==================================================
+
+    const ALLOWED_REACTION_EMOJIS = [
+      "👍", "❤️", "😂", "😮", "😢", "🔥", "🎉", "👀"
+    ];
+
+    socket.on(
+      "toggle reaction",
+      async (data) => {
+
+        try {
+
+          const rawId = String(data?.messageId || "").trim();
+          const emoji = String(data?.emoji || "").trim();
+
+          if (!rawId || !ALLOWED_REACTION_EMOJIS.includes(emoji)) {
+            return;
+          }
+
+          const isDm = rawId.startsWith("dm-");
+          const numericId = isDm ? rawId.slice(3) : rawId;
+
+          if (!/^\d+$/.test(numericId)) {
+            return;
+          }
+
+          if (isDm) {
+
+            const msgResult = await pool.query(
+              `SELECT conversation_id FROM dm_messages WHERE id = $1 LIMIT 1`,
+              [numericId]
+            );
+
+            if (msgResult.rows.length === 0) return;
+
+            const conversationId = msgResult.rows[0].conversation_id;
+
+            const access = await pool.query(
+              `
+              SELECT 1 FROM dm_conversations
+              WHERE id = $1 AND (user1_id = $2 OR user2_id = $2)
+              `,
+              [conversationId, user.id]
+            );
+
+            if (access.rows.length === 0) return;
+
+            const existing = await pool.query(
+              `SELECT id FROM dm_message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+              [numericId, user.id, emoji]
+            );
+
+            if (existing.rows.length > 0) {
+              await pool.query(`DELETE FROM dm_message_reactions WHERE id = $1`, [existing.rows[0].id]);
+            } else {
+              await pool.query(
+                `INSERT INTO dm_message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)`,
+                [numericId, user.id, emoji]
+              );
+            }
+
+            const summary = await getReactionSummary(numericId, true);
+
+            io.to(conversationId).emit("reactions updated", {
+              messageId: rawId,
+              reactions: summary
+            });
+
+          } else {
+
+            const msgResult = await pool.query(
+              `SELECT room FROM messages WHERE id = $1 LIMIT 1`,
+              [numericId]
+            );
+
+            if (msgResult.rows.length === 0) return;
+
+            const room = msgResult.rows[0].room;
+
+            if (!socket.rooms.has(room)) return;
+
+            const existing = await pool.query(
+              `SELECT id FROM message_reactions WHERE message_id = $1 AND user_id = $2 AND emoji = $3`,
+              [numericId, user.id, emoji]
+            );
+
+            if (existing.rows.length > 0) {
+              await pool.query(`DELETE FROM message_reactions WHERE id = $1`, [existing.rows[0].id]);
+            } else {
+              await pool.query(
+                `INSERT INTO message_reactions (message_id, user_id, emoji) VALUES ($1, $2, $3)`,
+                [numericId, user.id, emoji]
+              );
+            }
+
+            const summary = await getReactionSummary(numericId, false);
+
+            io.to(room).emit("reactions updated", {
+              messageId: numericId,
+              reactions: summary
+            });
+
+          }
+
+        } catch (error) {
+          console.error("toggle reaction error:", error);
+        }
+
+      }
+    );
+
+    // ==================================================
+    // 切断
     // ==================================================
 
     socket.on(
@@ -1435,5269 +5209,732 @@ document.addEventListener("DOMContentLoaded", () => {
 
         console.log(
           "Socket disconnected:",
+          socket.id,
           reason
         );
 
-        setConnection(
-          false
-        );
+        markUserOffline(user.id);
 
-      }
-    );
-
-    // ==================================================
-    // Connection Error
-    // ==================================================
-
-    socket.on(
-      "connect_error",
-      (error) => {
-
-        console.error(
-          "Socket connection error:",
-          error
-        );
-
-        setConnection(
-          false
-        );
-
-        if (
-          error?.message ===
-          "UNAUTHORIZED"
-        ) {
-
-          showScreen(
-            "auth"
-          );
-
+        if (!isUserOnline(user.id)) {
+          broadcastPresence(user.id, false);
         }
-
-      }
-    );
-
-    // ==================================================
-    // My Rooms
-    // ==================================================
-
-    socket.on(
-      "my rooms",
-      (rooms) => {
-
-        console.log(
-          "my rooms:",
-          rooms
-        );
-
-        const roomList =
-          Array.isArray(rooms) ? rooms : [];
-
-        if (!roomSnapshotInitialized) {
-
-          for (const room of roomList) {
-            roomSeenTimestamps[room.id] =
-              room.lastMessageAt ? new Date(room.lastMessageAt).getTime() : 0;
-          }
-
-          roomSnapshotInitialized = true;
-
-        } else {
-
-          for (const room of roomList) {
-
-            const isOpen =
-              currentChatType === "room" &&
-              (String(currentRoomId) === String(room.id) || String(currentServerId) === String(room.id));
-
-            const newTime = room.lastMessageAt ? new Date(room.lastMessageAt).getTime() : 0;
-            const seenTime = roomSeenTimestamps[room.id] || 0;
-
-            if (newTime > seenTime && isOpen) {
-              roomSeenTimestamps[room.id] = newTime;
-            }
-
-          }
-
-        }
-
-        setMyRooms(roomList);
-
-      }
-    );
-
-    // ==================================================
-    // Room Created
-    // ==================================================
-
-    socket.on(
-      "room created",
-      (room) => {
-
-        console.log(
-          "room created:",
-          room
-        );
-
-        if (!room) {
-          return;
-        }
-
-        currentChatType = "room";
-
-        currentRoom =
-          room;
-
-        currentRoomId =
-          room.id;
-
-        currentServerId =
-          room.id;
-
-        currentChannels = [];
-        renderChannelBar();
-
-        addOrUpdateMyRoom(
-          room
-        );
-
-        roomSeenTimestamps[room.id] = Date.now();
-
-        updateCurrentRoomUI();
-
-        updateUrlForCurrentView();
-
-        closeCreateModal();
-
-      }
-    );
-
-    // ==================================================
-    // Room Joined
-    // ==================================================
-
-    socket.on(
-      "room joined",
-      (room) => {
-
-        console.log(
-          "room joined:",
-          room
-        );
-
-        if (!room) {
-          return;
-        }
-
-        currentChatType = "room";
-
-        currentRoom =
-          room;
-
-        currentRoomId =
-          room.id;
-
-        currentServerId =
-          room.id;
-
-        currentChannels = [];
-        renderChannelBar();
-
-        addOrUpdateMyRoom(
-          room
-        );
-
-        roomSeenTimestamps[room.id] = Date.now();
-
-        updateCurrentRoomUI();
-
-        updateUrlForCurrentView();
-
-        closeJoinModal();
-
-      }
-    );
-
-    // ==================================================
-    // Room Opened
-    // ==================================================
-
-    socket.on(
-      "room opened",
-      (room) => {
-
-        console.log(
-          "room opened:",
-          room
-        );
-
-        if (!room) {
-          return;
-        }
-
-        currentChatType = "room";
-
-        currentRoom =
-          room;
-
-        currentRoomId =
-          room.id;
-
-        currentServerId =
-          room.id;
-
-        currentChannels = [];
-        renderChannelBar();
-
-        addOrUpdateMyRoom(
-          room
-        );
-
-        roomSeenTimestamps[room.id] = Date.now();
-
-        updateCurrentRoomUI();
-
-        updateUrlForCurrentView();
-
-      }
-    );
-
-    // ==================================================
-    // Casual
-    // ==================================================
-
-    socket.on(
-      "casual joined",
-      () => {
-
-        currentChatType = "room";
-
-        currentRoomId =
-          "casual";
-
-        currentRoom = {
-          id: "casual",
-          name: "雑談",
-          inviteCode: null,
-          ownerId: null
-        };
-
-        currentServerId = null;
-        currentChannels = [];
-        renderChannelBar();
-
-        updateCurrentRoomUI();
-
-        updateUrlForCurrentView();
-
-      }
-    );
-
-    // ==================================================
-    // メンバー一覧・オンライン状態
-    // ==================================================
-
-    socket.on("room members", (data) => {
-      currentRoomMembers = Array.isArray(data?.members) ? data.members : [];
-      currentRoomOwnerId = data?.ownerId !== undefined && data?.ownerId !== null ? Number(data.ownerId) : null;
-      renderMemberList();
-    });
-
-    socket.on("presence update", (data) => {
-      if (!data) return;
-      updateMemberPresence(data.userId, data.online);
-    });
-
-    // ==================================================
-    // チャンネル一覧
-    // ==================================================
-
-    socket.on("channels", (data) => {
-
-      if (!data || String(data.roomId) !== String(currentServerId)) return;
-
-      currentChannels = Array.isArray(data.channels) ? data.channels : [];
-      renderChannelBar();
-
-    });
-
-    socket.on("channels updated", (data) => {
-
-      if (!data || String(data.roomId) !== String(currentServerId)) return;
-
-      socket.emit("get channels", { roomId: currentServerId });
-
-    });
-
-    socket.on("channel opened", (data) => {
-
-      if (!data) return;
-
-      currentChatType = "room";
-      currentRoomId = data.id;
-      currentServerId = data.roomId;
-
-      currentRoom = {
-        id: data.roomId,
-        name: data.roomName,
-        inviteCode: currentRoom?.id === data.roomId ? currentRoom.inviteCode : null,
-        ownerId: data.ownerId
-      };
-
-      if (roomName) roomName.textContent = `${data.roomName} / ${data.name}`;
-      if (roomIcon) roomIcon.textContent = "📁";
-
-      casualRoomButton?.classList.remove("active");
-      roomSeenTimestamps[data.roomId] = Date.now();
-      renderJoinedRooms();
-
-      renderChannelBar();
-
-      updateUrlForCurrentView();
-
-    });
-
-    // ==================================================
-    // 入力中インジケーター
-    // ==================================================
-
-    socket.on("user typing", (data) => {
-
-      if (!data) return;
-      if (String(data.room) !== String(currentRoomId) || currentChatType === "dm") return;
-      if (currentUser && Number(data.userId) === Number(currentUser.id)) return;
-
-      if (typingIndicator) {
-
-        typingIndicator.textContent = `${data.username || "誰か"}さんが入力中...`;
-        typingIndicator.classList.remove("hidden");
-
-        clearTimeout(typingIndicator._hideTimeout);
-
-        typingIndicator._hideTimeout = setTimeout(() => {
-          typingIndicator.classList.add("hidden");
-        }, 3000);
-
-      }
-
-    });
-
-    // ==================================================
-    // My DMs
-    // ==================================================
-
-    socket.on("my dms", (list) => {
-
-      dmListData = Array.isArray(list) ? list : [];
-
-      if (!dmSnapshotInitialized) {
-
-        // 初回受信時は「新着」とみなさず、基準値として記録するだけ
-        for (const dm of dmListData) {
-          dmSeenTimestamps[dm.id] = dm.lastMessageAt ? new Date(dm.lastMessageAt).getTime() : 0;
-        }
-
-        dmSnapshotInitialized = true;
-
-      } else {
-
-        for (const dm of dmListData) {
-
-          const isOpen =
-            currentChatType === "dm" &&
-            String(currentRoomId) === String(dm.id);
-
-          const newTime = dm.lastMessageAt ? new Date(dm.lastMessageAt).getTime() : 0;
-          const seenTime = dmSeenTimestamps[dm.id] || 0;
-
-          if (newTime > seenTime) {
-
-            if (isOpen) {
-
-              dmSeenTimestamps[dm.id] = newTime;
-
-            } else {
-
-              addNotification(
-                "dm",
-                `${dm.otherUserName || "ユーザー"}: ${dm.lastMessage || "新しいメッセージ"}`,
-                () => openDM(dm.id)
-              );
-
-              dmSeenTimestamps[dm.id] = newTime;
-
-            }
-
-          }
-
-        }
-
-      }
-
-      renderDMList();
-    });
-
-    socket.on("dm opened", (dm) => {
-      if (!dm) return;
-
-      currentChatType = "dm";
-      currentRoomId = dm.id;
-      currentRoom = {
-        id: dm.id,
-        name: dm.otherUserName || "DM",
-        inviteCode: null,
-        ownerId: null,
-        otherUserId: dm.otherUserId
-      };
-
-      updateCurrentRoomUI();
-      clearMessages();
-      clearReply();
-
-      currentRoomMembers = [];
-      renderMemberList();
-
-      currentServerId = null;
-      currentChannels = [];
-      renderChannelBar();
-
-      updateUrlForCurrentView();
-    });
-
-    socket.on("dm previous messages", (list) => {
-      renderMessages(Array.isArray(list) ? list : []);
-    });
-
-    socket.on("dm message", (message) => {
-      if (!message || String(message.room) !== String(currentRoomId) || currentChatType !== "dm") return;
-      notifyIncomingMessage(message);
-      const shouldScroll = isNearBottom();
-      appendMessage(message);
-      if (shouldScroll) scrollToBottom(true);
-    });
-
-    socket.on("dm error", (data) => {
-      alert(data?.message || "DMを開けませんでした。");
-    });
-
-    socket.on("dm message error", (data) => {
-      alert(data?.message || "DMを送信できませんでした。");
-    });
-
-    // ==================================================
-    // Previous Messages
-    // ==================================================
-
-    socket.on(
-      "previous messages",
-      (list) => {
-
-        renderMessages(
-          Array.isArray(list)
-            ? list
-            : []
-        );
-
-      }
-    );
-
-    // ==================================================
-    // New Message
-    // ==================================================
-
-    socket.on(
-      "chat message",
-      (message) => {
-
-        if (!message) {
-          return;
-        }
-
-        if (
-          String(message.room) !==
-          String(currentRoomId)
-        ) {
-
-          return;
-
-        }
-
-        const shouldScroll =
-          isNearBottom();
-
-        notifyIncomingMessage(
-          message
-        );
-
-        appendMessage(
-          message
-        );
-
-        if (shouldScroll) {
-
-          scrollToBottom(
-            true
-          );
-
-        } else {
-
-          newMessageButton?.classList.remove(
-            "hidden"
-          );
-
-        }
-
-      }
-    );
-
-    // ==================================================
-    // Message Edited
-    // ==================================================
-
-    socket.on(
-      "message edited",
-      (message) => {
-
-        if (!message) {
-          return;
-        }
-
-        updateMessageElement(
-          message
-        );
-
-      }
-    );
-
-    // ==================================================
-    // リアクション更新
-    // ==================================================
-
-    socket.on("reactions updated", (data) => {
-
-      if (!data) return;
-
-      updateMessageReactions(data.messageId, Array.isArray(data.reactions) ? data.reactions : []);
-
-    });
-
-    // ==================================================
-    // メンション通知
-    // ==================================================
-
-    socket.on("mention received", (data) => {
-
-      if (!data) return;
-
-      addNotification(
-        "mention",
-        `${data.fromName || "誰か"}さんがあなたをメンションしました: ${data.text || ""}`,
-        () => {
-
-          if (data.isDm) {
-            openDM(data.room);
-          } else if (data.room === "casual") {
-            socket.emit("join casual");
-          } else if (data.room) {
-            // 部屋の該当チャンネルを開く（既定チャンネルの場合はそのまま部屋を開く）
-            socket.emit("open channel", { channelId: data.room });
-          }
-
-        }
-      );
-
-    });
-
-    // ==================================================
-    // 質問箱通知
-    // ==================================================
-
-    socket.on("question received", () => {
-
-      addNotification(
-        "question",
-        "質問箱に新しい質問が届きました",
-        () => openQuestionInboxModal()
-      );
-
-    });
-
-    // ==================================================
-    // Message Deleted
-    // ==================================================
-
-    socket.on(
-      "message deleted",
-      (data) => {
-
-        if (!data) {
-          return;
-        }
-
-        const element =
-          document.querySelector(
-            `[data-message-id="${CSS.escape(
-              String(data.id)
-            )}"]`
-          );
-
-        if (element) {
-
-          element.classList.add(
-            "message-removing"
-          );
-
-          setTimeout(
-            () => {
-
-              element.remove();
-
-            },
-            180
-          );
-
-        }
-
-      }
-    );
-
-    // ==================================================
-    // Room Deleted
-    // ==================================================
-
-    socket.on(
-      "room deleted",
-      (data) => {
-
-        const roomId =
-          String(
-            data?.roomId || ""
-          );
-
-        if (!roomId) {
-          return;
-        }
-
-        console.log(
-          "room deleted:",
-          roomId
-        );
-
-        myRooms =
-          myRooms.filter(
-            room =>
-              String(room.id) !==
-              roomId
-          );
-
-        renderJoinedRooms();
-
-        if (
-          String(currentRoomId) ===
-          roomId
-        ) {
-
-          currentRoomId =
-            "casual";
-
-          currentRoom = {
-            id: "casual",
-            name: "雑談",
-            inviteCode: null,
-            ownerId: null
-          };
-
-          updateCurrentRoomUI();
-
-          messages.innerHTML =
-            "";
-
-          if (
-            socket.connected
-          ) {
-
-            socket.emit(
-              "join casual"
-            );
-
-          }
-
-        }
-
-      }
-    );
-
-    // ==================================================
-    // Errors
-    // ==================================================
-
-    socket.on(
-      "create room error",
-      (data) => {
-
-        alert(
-          data?.message ||
-          "部屋を作成できませんでした。"
-        );
-
-      }
-    );
-
-    socket.on(
-      "join room error",
-      (data) => {
-
-        if (joinError) {
-
-          joinError.textContent =
-            data?.message ||
-            "部屋に参加できませんでした。";
-
-        } else {
-
-          alert(
-            data?.message ||
-            "部屋に参加できませんでした。"
-          );
-
-        }
-
-      }
-    );
-
-    socket.on(
-      "room open error",
-      (data) => {
-
-        alert(
-          data?.message ||
-          "部屋を開けませんでした。"
-        );
-
-      }
-    );
-
-    // ==================================================
-    // 部屋名URLの解決結果
-    // ==================================================
-
-    socket.on(
-      "room path resolved",
-      (data) => {
-
-        if (!data) return;
-
-        if (!data.found) {
-
-          alert(
-            `「${data.name}」という部屋は見つかりませんでした。`
-          );
-
-          socket.emit("join casual");
-
-          return;
-
-        }
-
-        if (data.member) {
-
-          socket.emit("open my room", { roomId: data.roomId });
-
-          return;
-
-        }
-
-        // 参加していない部屋 → 招待コード入力を促す
-        openJoinModal();
-
-        const description =
-          document.getElementById("joinModalDescription");
-
-        if (description) {
-          description.textContent =
-            `「${data.name}」に参加するには招待コードが必要です。`;
-        }
-
-      }
-    );
-
-    socket.on(
-      "delete room error",
-      (data) => {
-
-        alert(
-          data?.message ||
-          "部屋を削除できませんでした。"
-        );
-
-      }
-    );
-
-    socket.on(
-      "message send error",
-      (data) => {
-
-        alert(
-          data?.message ||
-          "メッセージを送信できませんでした。"
-        );
-
-      }
-    );
-
-    socket.on(
-      "message edit error",
-      (data) => {
-
-        alert(
-          data?.message ||
-          "コメントを編集できませんでした。"
-        );
-
-      }
-    );
-
-    socket.on(
-      "message delete error",
-      (data) => {
-
-        alert(
-          data?.message ||
-          "コメントを削除できませんでした。"
-        );
 
       }
     );
 
   }
+);
 
-  // ==================================================
-  // Rooms
-  // ==================================================
+// ==================================================
+// 雑談
+// ==================================================
 
-  function setMyRooms(
-    rooms
-  ) {
+async function joinCasual(
+  socket
+) {
 
-    const unique =
-      new Map();
+  try {
 
-    for (
-      const room of rooms
-    ) {
+    leaveCurrentRooms(
+      socket
+    );
 
-      if (
-        !room ||
-        !room.id
-      ) {
-        continue;
-      }
+    await socket.join(
+      "casual"
+    );
 
-      unique.set(
-        String(room.id),
-        room
-      );
+    socket.emit(
+      "casual joined"
+    );
 
-    }
+    await sendPreviousMessages(
+      socket,
+      "casual"
+    );
 
-    myRooms =
-      Array.from(
-        unique.values()
-      );
+    await sendRoomMembers(
+      socket,
+      "casual"
+    );
 
-    renderJoinedRooms();
+  } catch (error) {
 
-  }
-
-  function addOrUpdateMyRoom(
-    room
-  ) {
-
-    if (
-      !room ||
-      !room.id
-    ) {
-      return;
-    }
-
-    const roomId =
-      String(room.id);
-
-    const index =
-      myRooms.findIndex(
-        item =>
-          String(item.id) ===
-          roomId
-      );
-
-    if (index >= 0) {
-
-      myRooms[index] = {
-        ...myRooms[index],
-        ...room
-      };
-
-    } else {
-
-      myRooms.push(
-        room
-      );
-
-    }
-
-    renderJoinedRooms();
+    console.error(
+      "joinCasual error:",
+      error
+    );
 
   }
 
-  function renderJoinedRooms() {
+}
 
-    if (!joinedRooms) {
-      return;
-    }
+// ==================================================
+// 自分の部屋一覧送信
+// ==================================================
 
-    joinedRooms.innerHTML =
-      "";
+async function sendMyRooms(
+  socket,
+  userId
+) {
 
-    if (
-      myRooms.length === 0
-    ) {
+  try {
 
-      const empty =
-        document.createElement(
-          "div"
-        );
+    const result =
+      await pool.query(
+        `
+        SELECT
+          r.id,
+          r.name,
+          r.invite_code,
+          r.owner_id,
+          r.created_at,
+          lm.last_message_at
 
-      empty.className =
-        "joined-rooms-empty";
+        FROM rooms r
 
-      empty.textContent =
-        "参加中の部屋はありません";
+        INNER JOIN room_members rm
+          ON rm.room_id = r.id
 
-      joinedRooms.appendChild(
-        empty
+        LEFT JOIN LATERAL (
+          SELECT MAX(m.created_at) AS last_message_at
+          FROM messages m
+          INNER JOIN channels c ON c.room_id = r.id
+          WHERE m.room = c.id
+        ) lm ON TRUE
+
+        WHERE rm.user_id = $1
+
+        ORDER BY
+          r.created_at ASC
+        `,
+        [
+          userId
+        ]
       );
-
-      return;
-
-    }
 
     const rooms =
-      [...myRooms].sort(
-        (a, b) => {
-
-          const aTime =
-            new Date(
-              a.createdAt || 0
-            ).getTime();
-
-          const bTime =
-            new Date(
-              b.createdAt || 0
-            ).getTime();
-
-          return aTime - bTime;
-
-        }
+      result.rows.map(
+        formatRoom
       );
-
-    for (
-      const room of rooms
-    ) {
-
-      const button =
-        document.createElement(
-          "div"
-        );
-
-      button.className =
-        "joined-room-item";
-
-      if (
-        String(room.id) ===
-        String(currentRoomId)
-      ) {
-
-        button.classList.add(
-          "active"
-        );
-
-      }
-
-      const main =
-        document.createElement(
-          "button"
-        );
-
-      main.type =
-        "button";
-
-      main.className =
-        "joined-room-main";
-
-      main.innerHTML = `
-        <span class="joined-room-icon">
-          🏠
-        </span>
-
-        <span class="joined-room-name">
-          ${escapeHtml(room.name)}
-        </span>
-
-        ${
-          (() => {
-            const lastTime = room.lastMessageAt ? new Date(room.lastMessageAt).getTime() : 0;
-            const seenTime = roomSeenTimestamps[room.id] || 0;
-            const isActive = String(room.id) === String(currentRoomId) || String(room.id) === String(currentServerId);
-            return (lastTime > seenTime && !isActive) ? '<span class="unread-dot"></span>' : "";
-          })()
-        }
-      `;
-
-      main.addEventListener(
-        "click",
-        () => {
-
-          openMyRoom(
-            room.id
-          );
-
-        }
-      );
-
-      button.appendChild(
-        main
-      );
-
-      const ownerId =
-        room.ownerId !== null &&
-        room.ownerId !== undefined
-          ? Number(room.ownerId)
-          : null;
-
-      const userId =
-        currentUser
-          ? Number(currentUser.id)
-          : null;
-
-      if (
-        ownerId !== null &&
-        userId !== null &&
-        ownerId === userId
-      ) {
-
-        const deleteButton =
-          document.createElement(
-            "button"
-          );
-
-        deleteButton.type =
-          "button";
-
-        deleteButton.className =
-          "joined-room-delete";
-
-        deleteButton.title =
-          "この部屋を削除";
-
-        deleteButton.textContent =
-          "×";
-
-        deleteButton.addEventListener(
-          "click",
-          (event) => {
-
-            event.preventDefault();
-
-            event.stopPropagation();
-
-            deleteRoom(
-              room
-            );
-
-          }
-        );
-
-        button.appendChild(
-          deleteButton
-        );
-
-      }
-
-      joinedRooms.appendChild(
-        button
-      );
-
-    }
-
-  }
-
-  // ==================================================
-  // Open Room
-  // ==================================================
-
-  function openMyRoom(
-    roomId
-  ) {
-
-    if (
-      !socket ||
-      !socket.connected
-    ) {
-
-      alert(
-        "サーバーに接続されていません。"
-      );
-
-      return;
-
-    }
-
-    const room =
-      myRooms.find(
-        item =>
-          String(item.id) ===
-          String(roomId)
-      );
-
-    if (!room) {
-
-      console.warn(
-        "Room not found:",
-        roomId
-      );
-
-      socket.emit(
-        "get my rooms"
-      );
-
-      return;
-
-    }
-
-    currentChatType = "room";
-
-    currentRoomId =
-      room.id;
-
-    currentRoom =
-      room;
-
-    updateCurrentRoomUI();
-
-    clearMessages();
 
     socket.emit(
-      "open my room",
-      {
-        roomId:
-          room.id
-      }
+      "my rooms",
+      rooms
     );
 
-  }
+  } catch (error) {
 
-  // ==================================================
-  // Delete Room
-  // ==================================================
-
-  function deleteRoom(
-    room
-  ) {
-
-    if (!room) {
-      return;
-    }
-
-    const roomNameText =
-      room.name ||
-      "この部屋";
-
-    const confirmed =
-      window.confirm(
-        `「${roomNameText}」を削除しますか？\n\nこの部屋のメッセージも削除されます。\nこの操作は元に戻せません。`
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    if (
-      !socket ||
-      !socket.connected
-    ) {
-
-      alert(
-        "サーバーに接続されていません。"
-      );
-
-      return;
-
-    }
+    console.error(
+      "sendMyRooms error:",
+      error
+    );
 
     socket.emit(
-      "delete room",
-      {
-        roomId:
-          room.id
-      }
+      "my rooms",
+      []
     );
 
   }
 
-  // ==================================================
-  // Current Room UI
-  // ==================================================
+}
 
-  function updateCurrentRoomUI() {
+// ==================================================
+// DM一覧
+// ==================================================
 
-    if (currentChatType === "dm") {
-      if (roomName) roomName.textContent = currentRoom?.name || "DM";
-      if (roomIcon) roomIcon.textContent = "✉️";
-      if (inviteArea) inviteArea.classList.add("hidden");
-      casualRoomButton?.classList.remove("active");
-      renderJoinedRooms();
-      renderDMList();
-      memberListPanel?.classList.add("hidden");
-      return;
-    }
-
-    memberListPanel?.classList.remove("hidden");
-
-    const isCasual = String(currentRoomId) === "casual";
-
-    if (isCasual) {
-      if (roomName) roomName.textContent = "雑談";
-      if (roomIcon) roomIcon.textContent = "💬";
-      if (inviteArea) inviteArea.classList.add("hidden");
-      casualRoomButton?.classList.add("active");
-    } else {
-      if (roomName) roomName.textContent = currentRoom?.name || "ルーム";
-      if (roomIcon) roomIcon.textContent = "🏠";
-      if (inviteArea && currentRoom?.inviteCode) inviteArea.classList.remove("hidden");
-      if (inviteCode) inviteCode.textContent = currentRoom?.inviteCode || "------";
-      casualRoomButton?.classList.remove("active");
-    }
-
-    renderJoinedRooms();
-    renderDMList();
-  }
-
-
-  // ==================================================
-  // Casual
-  // ==================================================
-
-  function joinCasualRoom() {
-
-    if (
-      !socket ||
-      !socket.connected
-    ) {
-
-      return;
-
-    }
-
-    currentChatType = "room";
-
-    currentRoomId =
-      "casual";
-
-    currentRoom = {
-      id: "casual",
-      name: "雑談",
-      inviteCode: null,
-      ownerId: null
-    };
-
-    updateCurrentRoomUI();
-
-    clearMessages();
-
-    socket.emit(
-      "join casual"
+async function sendMyDMs(socket, userId) {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        c.id,
+        CASE WHEN c.user1_id = $1 THEN c.user2_id ELSE c.user1_id END AS other_user_id,
+        CASE WHEN c.user1_id = $1 THEN u2.name ELSE u1.name END AS other_user_name,
+        CASE WHEN c.user1_id = $1 THEN u2.avatar ELSE u1.avatar END AS other_user_avatar,
+        m.text AS last_message,
+        m.created_at AS last_message_at
+      FROM dm_conversations c
+      INNER JOIN users u1 ON u1.id = c.user1_id
+      INNER JOIN users u2 ON u2.id = c.user2_id
+      LEFT JOIN LATERAL (
+        SELECT text, created_at
+        FROM dm_messages
+        WHERE conversation_id = c.id
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+      ) m ON TRUE
+      WHERE c.user1_id = $1 OR c.user2_id = $1
+      ORDER BY COALESCE(m.created_at, c.created_at) DESC
+      `,
+      [userId]
     );
 
+    socket.emit("my dms", result.rows.map(row => ({
+      id: row.id,
+      otherUserId: Number(row.other_user_id),
+      otherUserName: row.other_user_name,
+      otherUserAvatar: row.other_user_avatar || null,
+      lastMessage: row.last_message || "",
+      lastMessageAt: row.last_message_at || null
+    })));
+  } catch (error) {
+    console.error("sendMyDMs error:", error);
+    socket.emit("my dms", []);
   }
-
-  casualRoomButton?.addEventListener(
-    "click",
-    joinCasualRoom
-  );
-
-  // ==================================================
-  // DM / User Search
-  // ==================================================
-
-  function openUserSearchModal() {
-    userSearchModal?.classList.remove("hidden");
-    if (userSearchMessage) userSearchMessage.textContent = "";
-    if (userSearchResults) userSearchResults.innerHTML = "";
-    if (userSearchInput) {
-      userSearchInput.value = "";
-      setTimeout(() => userSearchInput.focus(), 50);
-    }
-  }
-
-  function closeUserSearchModal() {
-    userSearchModal?.classList.add("hidden");
-  }
-
-  async function searchUsers() {
-    const q = String(userSearchInput?.value || "").trim();
-    if (!q) {
-      if (userSearchMessage) userSearchMessage.textContent = "ユーザー名を入力してください。";
-      if (userSearchResults) userSearchResults.innerHTML = "";
-      return;
-    }
-
-    try {
-      if (userSearchMessage) userSearchMessage.textContent = "検索中…";
-      const data = await api(`/api/users/search?q=${encodeURIComponent(q)}`);
-      renderUserSearchResults(Array.isArray(data?.users) ? data.users : []);
-    } catch (error) {
-      if (userSearchMessage) userSearchMessage.textContent = error.message || "検索できませんでした。";
-    }
-  }
-
-  function renderUserSearchResults(users) {
-    if (!userSearchResults) return;
-    userSearchResults.innerHTML = "";
-    if (users.length === 0) {
-      if (userSearchMessage) userSearchMessage.textContent = "ユーザーが見つかりませんでした。";
-      return;
-    }
-    if (userSearchMessage) userSearchMessage.textContent = `${users.length}件見つかりました。`;
-    for (const item of users) {
-      const row = document.createElement("div");
-      row.className = "user-search-row";
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "user-search-result";
-      button.innerHTML = `<span class="user-search-avatar">${avatarInnerHtml(item.avatar, item.name)}</span><span class="user-search-name">${escapeHtml(item.name)}</span><span class="user-search-arrow">›</span>`;
-      button.addEventListener("click", () => startDM(item.id));
-
-      const friendButton = document.createElement("button");
-      friendButton.type = "button";
-      friendButton.className = "friend-quick-button";
-      friendButton.title = "フレンド申請を送る";
-      friendButton.textContent = "＋フレンド";
-      friendButton.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        friendButton.disabled = true;
-        try {
-          const data = await sendFriendRequest(item.id);
-          friendButton.textContent = data?.status === "accepted" ? "フレンド" : "申請済み";
-        } catch (error) {
-          friendButton.disabled = false;
-          alert(error.message || "フレンド申請を送れませんでした。");
-        }
-      });
-
-      row.appendChild(button);
-      row.appendChild(friendButton);
-      userSearchResults.appendChild(row);
-    }
-  }
-
-  function startDM(userId) {
-    if (!socket || !socket.connected) {
-      alert("サーバーに接続されていません。");
-      return;
-    }
-    socket.emit("start dm", { userId });
-    closeUserSearchModal();
-    closeDMsModal();
-  }
-
-  function openDM(conversationId) {
-    if (!socket || !socket.connected) return;
-    socket.emit("open dm", { conversationId });
-    dmSeenTimestamps[conversationId] = Date.now();
-    closeDMsModal();
-  }
-
-  // ==================================================
-  // メンバー一覧
-  // ==================================================
-
-  function renderMemberList() {
-
-    const online = currentRoomMembers.filter(m => m.online);
-    const offline = currentRoomMembers.filter(m => !m.online);
-
-    if (memberListOnlineCount) memberListOnlineCount.textContent = String(online.length);
-    if (memberListOfflineCount) memberListOfflineCount.textContent = String(offline.length);
-
-    memberListOffline?.classList.toggle("hidden", offline.length === 0);
-
-    function renderGroup(container, members) {
-
-      if (!container) return;
-
-      container.innerHTML = "";
-
-      for (const member of members) {
-
-        const row = document.createElement("div");
-        row.className = "member-list-item";
-        row.dataset.userId = String(member.id);
-
-        row.innerHTML = `
-          <span class="member-list-avatar ${member.online ? "" : "offline"}">
-            ${avatarInnerHtml(member.avatar, member.name)}
-            <span class="member-status-dot ${member.online ? "online" : "offline"}"></span>
-          </span>
-          <span class="member-list-name">
-            ${Number(member.id) === Number(currentRoomOwnerId) ? '<span class="member-owner-badge" title="サーバーオーナー">👑</span>' : ""}
-            ${escapeHtml(member.name)}
-          </span>
-        `;
-
-        row.addEventListener("click", () => {
-          openUserProfile(member.id, member.name, member.avatar);
-        });
-
-        container.appendChild(row);
-
-      }
-
-    }
-
-    renderGroup(memberListOnlineItems, online);
-    renderGroup(memberListOfflineItems, offline);
-
-  }
-
-  function updateMemberPresence(userId, online) {
-
-    let changed = false;
-
-    for (const member of currentRoomMembers) {
-      if (Number(member.id) === Number(userId)) {
-        member.online = online;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      renderMemberList();
-    }
-
-  }
-
-  // ==================================================
-  // チャンネル一覧（サーバー内）
-  // ==================================================
-
-  function renderChannelBar() {
-
-    if (!channelBar || !channelBarList) return;
-
-    if (!currentServerId || currentChatType === "dm" || String(currentRoomId) === "casual") {
-      channelBar.classList.add("hidden");
-      return;
-    }
-
-    channelBar.classList.remove("hidden");
-    channelBarList.innerHTML = "";
-
-    for (const channel of currentChannels) {
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "channel-pill";
-
-      if (String(channel.id) === String(currentRoomId)) {
-        button.classList.add("active");
-      }
-
-      button.innerHTML = `<span class="channel-hash">#</span>${escapeHtml(channel.name)}`;
-
-      button.addEventListener("click", () => {
-
-        if (String(channel.id) === String(currentRoomId)) return;
-
-        if (!socket || !socket.connected) return;
-
-        clearMessages();
-        socket.emit("open channel", { channelId: channel.id });
-
-      });
-
-      channelBarList.appendChild(button);
-
-    }
-
-    const isOwner =
-      currentUser &&
-      currentRoom &&
-      Number(currentRoom.ownerId) === Number(currentUser.id);
-
-    createChannelButton?.classList.toggle("hidden", !isOwner);
-
-  }
-
-  createChannelButton?.addEventListener("click", () => {
-
-    if (!currentServerId) return;
-
-    const name = window.prompt("チャンネル名を入力してください（例: general、雑談）");
-
-    if (!name || !name.trim()) return;
-
-    if (!socket || !socket.connected) {
-      alert("サーバーに接続されていません。");
-      return;
-    }
-
-    socket.emit("create channel", {
-      roomId: currentServerId,
-      name: name.trim().slice(0, 50)
-    });
-
-  });
-
-  function renderDMList() {
-    if (!dmList) return;
-    dmList.innerHTML = "";
-    dmListEmpty?.classList.toggle("hidden", dmListData.length > 0);
-    for (const dm of dmListData) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "dm-button";
-      if (String(currentRoomId) === String(dm.id) && currentChatType === "dm") button.classList.add("active");
-      button.innerHTML = `<span class="dm-avatar">${avatarInnerHtml(dm.otherUserAvatar, dm.otherUserName)}</span><span class="dm-info"><span class="dm-name">${escapeHtml(dm.otherUserName || "ユーザー")}</span><span class="dm-last-message">${escapeHtml(dm.lastMessage || "新しいDM")}</span></span>`;
-      button.addEventListener("click", () => openDM(dm.id));
-      dmList.appendChild(button);
-    }
-  }
-
-  function openDMsModal() {
-    dmModal?.classList.remove("hidden");
-    notifications = notifications.filter(n => n.type !== "dm");
-    renderNotifications();
-  }
-
-  function closeDMsModal() {
-    dmModal?.classList.add("hidden");
-  }
-
-  openDMsButton?.addEventListener("click", openDMsModal);
-  closeDMsButton?.addEventListener("click", closeDMsModal);
-  dmModal?.addEventListener("click", (event) => {
-    if (event.target === dmModal) closeDMsModal();
-  });
-
-  // ==================================================
-  // 通知パネル
-  // ==================================================
-
-  function addNotification(type, text, onClick) {
-
-    const notification = {
-      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      type,
-      text,
-      time: new Date(),
-      onClick: onClick || null
-    };
-
-    notifications.unshift(notification);
-
-    if (notifications.length > 30) {
-      notifications = notifications.slice(0, 30);
-    }
-
-    renderNotifications();
-
-  }
-
-  function renderNotifications() {
-
-    if (notificationsList) {
-
-      notificationsList.innerHTML = "";
-
-      for (const notification of notifications) {
-
-        const item = document.createElement("button");
-        item.type = "button";
-        item.className = "notification-item";
-
-        item.innerHTML = `
-          <span class="notification-icon">${notification.type === "friend" ? "👥" : "💬"}</span>
-          <span class="notification-body">
-            <span class="notification-text">${escapeHtml(notification.text)}</span>
-            <span class="notification-time">${formatTime(notification.time)}</span>
-          </span>
-        `;
-
-        item.addEventListener("click", () => {
-
-          notifications = notifications.filter(n => n.id !== notification.id);
-          renderNotifications();
-
-          if (notification.onClick) {
-            notification.onClick();
-          }
-
-          notificationsPanel?.classList.add("hidden");
-
-        });
-
-        notificationsList.appendChild(item);
-
-      }
-
-    }
-
-    notificationsEmpty?.classList.toggle("hidden", notifications.length > 0);
-
-    if (notificationsBadge) {
-
-      if (notifications.length > 0) {
-        notificationsBadge.textContent = String(notifications.length);
-        notificationsBadge.classList.remove("hidden");
-      } else {
-        notificationsBadge.classList.add("hidden");
-      }
-
-    }
-
-    if (dmNotifBadge) {
-
-      const dmCount = notifications.filter(n => n.type === "dm").length;
-
-      if (dmCount > 0) {
-        dmNotifBadge.textContent = String(dmCount);
-        dmNotifBadge.classList.remove("hidden");
-      } else {
-        dmNotifBadge.classList.add("hidden");
-      }
-
-    }
-
-  }
-
-  notificationsButton?.addEventListener("click", () => {
-    notificationsPanel?.classList.toggle("hidden");
-  });
-
-  clearNotificationsButton?.addEventListener("click", () => {
-    notifications = [];
-    renderNotifications();
-  });
-
-  document.addEventListener("click", (event) => {
-
-    if (
-      notificationsPanel &&
-      !notificationsPanel.classList.contains("hidden") &&
-      !notificationsPanel.contains(event.target) &&
-      event.target !== notificationsButton &&
-      !notificationsButton?.contains(event.target)
-    ) {
-      notificationsPanel.classList.add("hidden");
-    }
-
-  });
-
-  // ==================================================
-  // Friends
-  // ==================================================
-
-  function openFriendsModal() {
-    friendsModal?.classList.remove("hidden");
-    loadFriends();
-  }
-
-  function closeFriendsModal() {
-    friendsModal?.classList.add("hidden");
-  }
-
-  function switchFriendsTab(tab) {
-
-    friendsTabs.forEach(button => {
-      button.classList.toggle("active", button.dataset.tab === tab);
-    });
-
-    friendsPanelFriends?.classList.toggle("hidden", tab !== "friends");
-    friendsPanelIncoming?.classList.toggle("hidden", tab !== "incoming");
-    friendsPanelOutgoing?.classList.toggle("hidden", tab !== "outgoing");
-
-  }
-
-  friendsTabs.forEach(button => {
-    button.addEventListener("click", () => switchFriendsTab(button.dataset.tab));
-  });
-
-  async function sendFriendRequest(userId) {
-    const data = await api("/api/friends/request", {
-      method: "POST",
-      body: JSON.stringify({ userId })
-    });
-    loadFriends();
-    return data;
-  }
-
-  async function acceptFriendRequest(id) {
-    await api(`/api/friends/${id}/accept`, { method: "POST" });
-    loadFriends();
-  }
-
-  async function removeFriendRequest(id) {
-    await api(`/api/friends/${id}`, { method: "DELETE" });
-    loadFriends();
-  }
-
-  function renderFriendRow(container, item, options) {
-
-    const row = document.createElement("div");
-    row.className = "user-search-row";
-
-    const info = document.createElement("div");
-    info.className = "user-search-result";
-    info.style.cursor = "default";
-    info.innerHTML = `<span class="user-search-avatar">${avatarInnerHtml(item.avatar, item.name)}</span><span class="user-search-name">${escapeHtml(item.name)}</span>`;
-
-    row.appendChild(info);
-
-    for (const action of options) {
-
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = action.className || "friend-quick-button";
-      button.textContent = action.label;
-      button.addEventListener("click", async () => {
-        button.disabled = true;
-        try {
-          await action.onClick();
-        } catch (error) {
-          alert(error.message || "処理できませんでした。");
-          button.disabled = false;
-        }
-      });
-
-      row.appendChild(button);
-
-    }
-
-    container.appendChild(row);
-
-  }
-
-  async function loadFriends() {
-
-    try {
-
-      const data = await api("/api/friends");
-
-      const friends = Array.isArray(data?.friends) ? data.friends : [];
-      const incoming = Array.isArray(data?.incoming) ? data.incoming : [];
-      const outgoing = Array.isArray(data?.outgoing) ? data.outgoing : [];
-
-      if (friendsList) {
-        friendsList.innerHTML = "";
-        for (const item of friends) {
-          renderFriendRow(friendsList, item, [
-            { label: "DM", onClick: () => { closeFriendsModal(); startDM(item.userId); } },
-            { label: "削除", className: "friend-quick-button danger", onClick: () => removeFriendRequest(item.id) }
-          ]);
-        }
-      }
-      friendsListEmpty?.classList.toggle("hidden", friends.length > 0);
-
-      if (incomingRequestsList) {
-        incomingRequestsList.innerHTML = "";
-        for (const item of incoming) {
-          renderFriendRow(incomingRequestsList, item, [
-            { label: "承認", onClick: () => acceptFriendRequest(item.id) },
-            { label: "拒否", className: "friend-quick-button danger", onClick: () => removeFriendRequest(item.id) }
-          ]);
-        }
-      }
-      incomingRequestsEmpty?.classList.toggle("hidden", incoming.length > 0);
-
-      if (outgoingRequestsList) {
-        outgoingRequestsList.innerHTML = "";
-        for (const item of outgoing) {
-          renderFriendRow(outgoingRequestsList, item, [
-            { label: "取り消す", className: "friend-quick-button danger", onClick: () => removeFriendRequest(item.id) }
-          ]);
-        }
-      }
-      outgoingRequestsEmpty?.classList.toggle("hidden", outgoing.length > 0);
-
-      if (friendRequestBadge) {
-        if (incoming.length > 0) {
-          friendRequestBadge.textContent = String(incoming.length);
-          friendRequestBadge.classList.remove("hidden");
-        } else {
-          friendRequestBadge.classList.add("hidden");
-        }
-      }
-
-    } catch (error) {
-      console.error("loadFriends error:", error);
-    }
-
-  }
-
-  openFriendsButton?.addEventListener("click", openFriendsModal);
-  closeFriendsButton?.addEventListener("click", closeFriendsModal);
-  friendsModal?.addEventListener("click", (event) => {
-    if (event.target === friendsModal) closeFriendsModal();
-  });
-
-  userSearchButton?.addEventListener("click", openUserSearchModal);
-  closeUserSearchButton?.addEventListener("click", closeUserSearchModal);
-  userSearchInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") { event.preventDefault(); searchUsers(); }
-  });
-  userSearchModal?.addEventListener("click", (event) => {
-    if (event.target === userSearchModal) closeUserSearchModal();
-  });
-
-  // ==================================================
-  // Create Modal
-  // ==================================================
-
-  function openCreateModal() {
-
-    if (!createModal) {
-      return;
-    }
-
-    createModal.classList.remove(
-      "hidden"
+}
+
+async function sendPreviousDMMessages(socket, conversationId) {
+  try {
+    const result = await pool.query(
+      `
+      SELECT
+        dm.id,
+        dm.conversation_id,
+        dm.user_id,
+        dm.username,
+        dm.text,
+        dm.image,
+        dm.created_at,
+        u.avatar AS avatar
+      FROM dm_messages dm
+      LEFT JOIN users u ON u.id::text = dm.user_id::text
+      WHERE dm.conversation_id = $1
+      ORDER BY dm.created_at ASC, dm.id ASC
+      LIMIT 1000
+      `,
+      [conversationId]
     );
 
-    if (roomNameInput) {
+    const messageIds = result.rows.map(row => row.id);
+    const reactionsMap = await fetchReactionsForMessages(messageIds, true);
 
-      roomNameInput.value =
-        "";
-
-      setTimeout(
-        () => {
-
-          roomNameInput.focus();
-
-        },
-        50
-      );
-
-    }
-
+    socket.emit("dm previous messages", result.rows.map(row => ({
+      id: `dm-${row.id}`,
+      room: row.conversation_id,
+      userId: Number(row.user_id),
+      username: row.username,
+      avatar: row.avatar || null,
+      text: row.text,
+      image: row.image || null,
+      createdAt: row.created_at,
+      edited: false,
+      isDm: true,
+      reactions: reactionsMap.get(String(row.id)) || []
+    })));
+  } catch (error) {
+    console.error("sendPreviousDMMessages error:", error);
+    socket.emit("dm previous messages", []);
   }
+}
 
-  function closeCreateModal() {
-
-    createModal?.classList.add(
-      "hidden"
+async function sendMyDMsToUsers(conversationId) {
+  try {
+    const result = await pool.query(
+      `SELECT user1_id, user2_id FROM dm_conversations WHERE id = $1 LIMIT 1`,
+      [conversationId]
     );
+    if (result.rows.length === 0) return;
 
-  }
-
-  createRoomButton?.addEventListener(
-    "click",
-    openCreateModal
-  );
-
-  cancelCreateButtons.forEach(
-    button => {
-
-      button.addEventListener(
-        "click",
-        closeCreateModal
-      );
-
-    }
-  );
-
-  confirmCreateButton?.addEventListener(
-    "click",
-    () => {
-
-      const name =
-        String(
-          roomNameInput?.value ||
-          ""
-        ).trim();
-
-      if (!name) {
-
-        alert(
-          "部屋の名前を入力してください。"
-        );
-
-        roomNameInput?.focus();
-
-        return;
-
-      }
-
-      if (name.length > 100) {
-
-        alert(
-          "部屋の名前は100文字以内にしてください。"
-        );
-
-        return;
-
-      }
-
-      if (
-        !socket ||
-        !socket.connected
-      ) {
-
-        alert(
-          "サーバーに接続されていません。"
-        );
-
-        return;
-
-      }
-
-      confirmCreateButton.disabled =
-        true;
-
-      socket.emit(
-        "create room",
-        {
-          name
+    const ids = [Number(result.rows[0].user1_id), Number(result.rows[0].user2_id)];
+    for (const id of ids) {
+      for (const connectedSocket of io.sockets.sockets.values()) {
+        if (connectedSocket.userId && Number(connectedSocket.userId) === id) {
+          await sendMyDMs(connectedSocket, id);
         }
-      );
-
-      setTimeout(
-        () => {
-
-          if (
-            confirmCreateButton
-          ) {
-
-            confirmCreateButton.disabled =
-              false;
-
-          }
-
-        },
-        1500
-      );
-
-    }
-  );
-
-  roomNameInput?.addEventListener(
-    "keydown",
-    (event) => {
-
-      if (
-        event.key ===
-        "Enter"
-      ) {
-
-        event.preventDefault();
-
-        confirmCreateButton?.click();
-
       }
-
     }
-  );
-
-  // ==================================================
-  // Join Modal
-  // ==================================================
-
-  function openJoinModal() {
-
-    if (!joinModal) {
-      return;
-    }
-
-    joinModal.classList.remove(
-      "hidden"
-    );
-
-    const description =
-      document.getElementById("joinModalDescription");
-
-    if (description) {
-      description.textContent = "招待コードを入力してください。";
-    }
-
-    if (joinError) {
-
-      joinError.textContent =
-        "";
-
-    }
-
-    if (inviteCodeInput) {
-
-      inviteCodeInput.value =
-        "";
-
-      setTimeout(
-        () => {
-
-          inviteCodeInput.focus();
-
-        },
-        50
-      );
-
-    }
-
+  } catch (error) {
+    console.error("sendMyDMsToUsers error:", error);
   }
+}
 
-  function closeJoinModal() {
+// ==================================================
+// 指定ユーザーの接続中ソケットへ通知を送る
+// （フレンド申請・承認などのリアルタイム反映用）
+// ==================================================
 
-    joinModal?.classList.add(
-      "hidden"
-    );
-
+function notifyUser(userId, eventName, payload) {
+  try {
+    for (const connectedSocket of io.sockets.sockets.values()) {
+      if (connectedSocket.userId && Number(connectedSocket.userId) === Number(userId)) {
+        connectedSocket.emit(eventName, payload || {});
+      }
+    }
+  } catch (error) {
+    console.error("notifyUser error:", error);
   }
+}
 
-  joinRoomButton?.addEventListener(
-    "click",
-    openJoinModal
-  );
+// ==================================================
+// オンライン状態の変化を全員へ通知
+// ==================================================
 
-  cancelJoinButtons.forEach(
-    button => {
+function broadcastPresence(userId, online) {
+  try {
+    io.emit("presence update", { userId: Number(userId), online });
+  } catch (error) {
+    console.error("broadcastPresence error:", error);
+  }
+}
 
-      button.addEventListener(
-        "click",
-        closeJoinModal
-      );
+// ==================================================
+// 部屋のメンバー一覧を送信
+// （雑談の場合は現在オンラインの全ユーザーを表示）
+// ==================================================
 
-    }
-  );
+async function sendRoomMembers(socket, room) {
 
-  confirmJoinButton?.addEventListener(
-    "click",
-    () => {
+  try {
 
-      const code =
-        String(
-          inviteCodeInput?.value ||
-          ""
-        )
-          .trim()
-          .toUpperCase();
+    let rows;
+    let ownerId = null;
 
-      if (!code) {
+    if (room === "casual") {
 
-        if (joinError) {
+      const onlineIds = Array.from(onlineUserCounts.keys());
 
-          joinError.textContent =
-            "招待コードを入力してください。";
-
-        }
-
-        inviteCodeInput?.focus();
-
-        return;
-
-      }
-
-      if (
-        !socket ||
-        !socket.connected
-      ) {
-
-        if (joinError) {
-
-          joinError.textContent =
-            "サーバーに接続されていません。";
-
-        }
-
-        return;
-
-      }
-
-      if (joinError) {
-
-        joinError.textContent =
-          "";
-
-      }
-
-      confirmJoinButton.disabled =
-        true;
-
-      socket.emit(
-        "join room",
-        {
-          code
-        }
-      );
-
-      setTimeout(
-        () => {
-
-          if (
-            confirmJoinButton
-          ) {
-
-            confirmJoinButton.disabled =
-              false;
-
-          }
-
-        },
-        1500
-      );
-
-    }
-  );
-
-  inviteCodeInput?.addEventListener(
-    "keydown",
-    (event) => {
-
-      if (
-        event.key ===
-        "Enter"
-      ) {
-
-        event.preventDefault();
-
-        confirmJoinButton?.click();
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // Invite Code
-  // ==================================================
-
-  inviteCode?.addEventListener(
-    "click",
-    async () => {
-
-      const code =
-        currentRoom?.inviteCode;
-
-      if (!code) {
+      if (onlineIds.length === 0) {
+        socket.emit("room members", { room, ownerId: null, members: [] });
         return;
       }
 
-      try {
-
-        await navigator.clipboard.writeText(
-          code
-        );
-
-        const original =
-          inviteCode.textContent;
-
-        inviteCode.textContent =
-          "コピーしました！";
-
-        setTimeout(
-          () => {
-
-            if (inviteCode) {
-
-              inviteCode.textContent =
-                original;
-
-            }
-
-          },
-          1200
-        );
-
-      } catch (error) {
-
-        console.error(
-          "clipboard error:",
-          error
-        );
-
-      }
-
-    }
-  );
-
-  inviteLinkButton?.addEventListener(
-    "click",
-    async () => {
-
-      const name =
-        currentRoom?.name ||
-        currentRoomId;
-
-      if (!name) {
-        return;
-      }
-
-      const url =
-        `${window.location.origin}/${encodeURIComponent(name)}`;
-
-      try {
-
-        await navigator.clipboard.writeText(url);
-
-        const original =
-          inviteLinkButton.textContent;
-
-        inviteLinkButton.textContent =
-          "コピーしました！";
-
-        setTimeout(
-          () => {
-
-            if (inviteLinkButton) {
-
-              inviteLinkButton.textContent =
-                original;
-
-            }
-
-          },
-          1200
-        );
-
-      } catch (error) {
-
-        console.error(
-          "clipboard error:",
-          error
-        );
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // Messages
-  // ==================================================
-
-  function clearMessages() {
-
-    if (messages) {
-
-      messages.innerHTML =
-        "";
-
-    }
-
-    lastMessageAuthorId = null;
-    lastMessageTime = null;
-
-  }
-
-  function renderMessages(
-    list
-  ) {
-
-    if (!messages) {
-      return;
-    }
-
-    isLoadingMessages =
-      true;
-
-    clearMessages();
-
-    for (
-      const message of list
-    ) {
-
-      if (
-        String(message.room) !==
-        String(currentRoomId)
-      ) {
-
-        continue;
-
-      }
-
-      appendMessage(
-        message,
-        false
+      const result = await pool.query(
+        `SELECT id, name, avatar FROM users WHERE id = ANY($1::int[]) ORDER BY name ASC`,
+        [onlineIds]
       );
 
-    }
-
-    isLoadingMessages =
-      false;
-
-    requestAnimationFrame(
-      () => {
-
-        scrollToBottom(
-          false
-        );
-
-      }
-    );
-
-  }
-
-  // ==================================================
-  // Append Message
-  // ==================================================
-
-  function appendMessage(
-    message,
-    scroll = true
-  ) {
-
-    if (!messages || !message) {
-      return;
-    }
-
-    if (
-      String(message.room) !==
-      String(currentRoomId)
-    ) {
-
-      return;
-
-    }
-
-    const wrapper =
-      document.createElement(
-        "div"
-      );
-
-    wrapper.className =
-      "message";
-
-    wrapper.dataset.messageId =
-      String(message.id);
-
-    // ----------------------------------------------
-    // 自分 / 他人
-    // ----------------------------------------------
-
-    const isOwn =
-      currentUser &&
-      Number(message.userId) ===
-      Number(currentUser.id);
-
-    if (isOwn) {
-
-      wrapper.classList.add(
-        "own"
-      );
+      rows = result.rows;
 
     } else {
 
-      wrapper.classList.add(
-        "other"
+      const ownerResult = await pool.query(
+        `SELECT owner_id FROM rooms WHERE id = $1 LIMIT 1`,
+        [room]
       );
 
-    }
+      if (ownerResult.rows.length > 0 && ownerResult.rows[0].owner_id !== null) {
+        ownerId = Number(ownerResult.rows[0].owner_id);
+      }
 
-    // ----------------------------------------------
-    // 連続投稿のグループ化（Discordと同様、
-    // 同じ人が続けて短時間に投稿した場合は
-    // アイコン・名前を省略する）
-    // ----------------------------------------------
-
-    const messageTime =
-      message.createdAt
-        ? new Date(message.createdAt).getTime()
-        : Date.now();
-
-    const hasReply =
-      message.replyToId !== null &&
-      message.replyToId !== undefined &&
-      String(message.replyToId) !== "";
-
-    const isGrouped =
-      !hasReply &&
-      lastMessageAuthorId !== null &&
-      String(lastMessageAuthorId) === String(message.userId) &&
-      lastMessageTime !== null &&
-      Math.abs(messageTime - lastMessageTime) < 5 * 60 * 1000;
-
-    if (isGrouped) {
-      wrapper.classList.add("grouped");
-    }
-
-    lastMessageAuthorId = message.userId;
-    lastMessageTime = messageTime;
-
-    // ----------------------------------------------
-    // Avatar
-    // ----------------------------------------------
-
-    const username =
-      message.username ||
-      "Unknown";
-
-    const avatarLetter =
-      username
-        .trim()
-        .charAt(0)
-        .toUpperCase() ||
-      "U";
-
-    // ----------------------------------------------
-    // Reply Card
-    // ----------------------------------------------
-
-    const replyHtml =
-      hasReply
-        ? `
-          <button
-            type="button"
-            class="message-reply-card"
-            data-action="reply-jump"
-            title="返信元のコメントを見る"
-          >
-
-            <span class="reply-card-bar"></span>
-
-            <span class="reply-card-inner">
-
-              <span class="reply-card-label">
-                ↩ 返信
-              </span>
-
-              <span class="reply-card-user">
-                ${escapeHtml(
-                  message.replyToUsername ||
-                  "ユーザー"
-                )}
-              </span>
-
-              <span class="reply-card-text">
-                ${escapeHtml(
-                  message.replyToText ||
-                  "元のメッセージ"
-                )}
-              </span>
-
-            </span>
-
-            <span class="reply-card-arrow">
-              ›
-            </span>
-
-          </button>
+      const result = await pool.query(
         `
-        : "";
-
-    // ----------------------------------------------
-    // Header（Discordと同様、自分のコメントも含め常に表示。
-    // ただし連続投稿の場合は省略する）
-    // ----------------------------------------------
-
-    const headerHtml =
-      isGrouped
-        ? ""
-        : `
-      <div class="message-header">
-
-        <span
-          class="message-username"
-          data-action="view-profile"
-          data-user-id="${escapeHtml(String(message.userId))}"
-          tabindex="0"
-          role="button"
-        >
-          ${escapeHtml(
-            username
-          )}
-        </span>
-
-        <span class="message-time">
-          ${formatTime(
-            message.createdAt
-          )}
-        </span>
-
-        ${
-          message.edited
-            ? `
-              <span class="message-edited">
-                編集済み
-              </span>
-            `
-            : ""
-        }
-
-      </div>
-    `;
-
-    // ----------------------------------------------
-    // Actions
-    // ----------------------------------------------
-
-    const actionsHtml = message.isDm
-      ? (
-        !isOwn
-          ? `
-            <div class="message-actions">
-              <button type="button" class="message-report-button" data-action="report-message" title="このメッセージを通報">🚩</button>
-            </div>
-          `
-          : ""
-      )
-      : `
-        <div class="message-actions">
-          <button type="button" class="message-reply-button" data-action="reply" title="このコメントに返信">↩ 返信</button>
-          ${
-            isOwn
-              ? `
-                <button type="button" class="message-edit-button" data-action="edit">編集</button>
-                <button type="button" class="message-delete-button" data-action="delete">削除</button>
-              `
-              : `
-                <button type="button" class="message-report-button" data-action="report-message" title="このメッセージを通報">🚩</button>
-              `
-          }
-        </div>
-      `;
-
-    // ----------------------------------------------
-    // HTML
-    // ----------------------------------------------
-
-    wrapper.innerHTML = `
-
-      <div
-        class="message-avatar"
-        data-action="view-profile"
-        data-user-id="${escapeHtml(String(message.userId))}"
-        tabindex="0"
-        role="button"
-      >
-        ${
-          isGrouped
-            ? `<span class="message-hover-time">${formatTime(message.createdAt)}</span>`
-            : avatarInnerHtml(
-                message.avatar,
-                username
-              )
-        }
-      </div>
-
-      <div class="message-body">
-
-        ${headerHtml}
-
-        <div class="message-bubble">
-
-          ${replyHtml}
-
-          ${
-            message.text
-              ? `
-                <div class="message-text">
-                  ${linkifyHtml(message.text)}
-                  ${
-                    isGrouped && message.edited
-                      ? `<span class="message-edited">（編集済み）</span>`
-                      : ""
-                  }
-                </div>
-              `
-              : ""
-          }
-
-          ${
-            message.image
-              ? `
-                <img
-                  src="${escapeHtml(message.image)}"
-                  class="message-image"
-                  alt="添付画像"
-                  data-action="open-image"
-                >
-              `
-              : ""
-          }
-
-        </div>
-
-        <div class="message-reactions" data-message-id="${escapeHtml(String(message.id))}">
-          ${buildReactionsHtml(message)}
-          <button type="button" class="reaction-add-button" data-action="add-reaction" title="リアクションを追加">😊+</button>
-        </div>
-
-        ${actionsHtml}
-
-      </div>
-    `;
-
-    // ----------------------------------------------
-    // Reply
-    // ----------------------------------------------
-
-    wrapper
-      .querySelector(
-        '[data-action="open-image"]'
-      )
-      ?.addEventListener(
-        "click",
-        (event) => {
-          window.open(event.target.src, "_blank");
-        }
+        SELECT u.id, u.name, u.avatar
+        FROM room_members rm
+        INNER JOIN users u ON u.id = rm.user_id
+        WHERE rm.room_id = $1
+        ORDER BY u.name ASC
+        `,
+        [room]
       );
 
-    wrapper
-      .querySelectorAll(
-        '[data-action="view-profile"]'
-      )
-      .forEach(el => {
-
-        el.addEventListener("click", () => {
-          openUserProfile(Number(el.dataset.userId), username, message.avatar);
-        });
-
-        el.addEventListener("keydown", (event) => {
-
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            openUserProfile(Number(el.dataset.userId), username, message.avatar);
-          }
-
-        });
-
-      });
-
-    wrapper
-      .querySelectorAll('[data-action="toggle-reaction"]')
-      .forEach(el => {
-
-        el.addEventListener("click", () => {
-          toggleReaction(message.id, el.dataset.emoji);
-        });
-
-      });
-
-    wrapper
-      .querySelector('[data-action="add-reaction"]')
-      ?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        openReactionPicker(event.currentTarget, message.id);
-      });
-
-    wrapper
-      .querySelector(
-        '[data-action="reply"]'
-      )
-      ?.addEventListener(
-        "click",
-        () => {
-
-          setReply(
-            message
-          );
-
-        }
-      );
-
-    // ----------------------------------------------
-    // Reply Jump
-    // ----------------------------------------------
-
-    wrapper
-      .querySelector(
-        '[data-action="reply-jump"]'
-      )
-      ?.addEventListener(
-        "click",
-        (event) => {
-
-          event.preventDefault();
-
-          event.stopPropagation();
-
-          jumpToMessage(
-            message.replyToId
-          );
-
-        }
-      );
-
-    // ----------------------------------------------
-    // Edit
-    // ----------------------------------------------
-
-    wrapper
-      .querySelector(
-        '[data-action="edit"]'
-      )
-      ?.addEventListener(
-        "click",
-        () => {
-
-          editMessage(
-            message
-          );
-
-        }
-      );
-
-    // ----------------------------------------------
-    // Report
-    // ----------------------------------------------
-
-    wrapper
-      .querySelector('[data-action="report-message"]')
-      ?.addEventListener("click", () => {
-
-        openReportModal({
-          targetUserId: message.userId,
-          targetMessageId: message.id,
-          targetMessageText: message.text || ""
-        });
-
-      });
-
-
-    // ----------------------------------------------
-    // Delete
-    // ----------------------------------------------
-
-    wrapper
-      .querySelector(
-        '[data-action="delete"]'
-      )
-      ?.addEventListener(
-        "click",
-        () => {
-
-          deleteMessage(
-            message
-          );
-
-        }
-      );
-
-    // ----------------------------------------------
-    // Append
-    // ----------------------------------------------
-
-    messages.appendChild(
-      wrapper
-    );
-
-    // ----------------------------------------------
-    // Animation
-    // ----------------------------------------------
-
-    requestAnimationFrame(
-      () => {
-
-        wrapper.classList.add(
-          "message-visible"
-        );
-
-      }
-    );
-
-    // ----------------------------------------------
-    // Scroll
-    // ----------------------------------------------
-
-    if (scroll) {
-
-      requestAnimationFrame(
-        () => {
-
-          scrollToBottom(
-            true
-          );
-
-        }
-      );
+      rows = result.rows;
 
     }
 
-  }
+    const members = rows.map(row => ({
+      id: Number(row.id),
+      name: row.name,
+      avatar: row.avatar || null,
+      online: isUserOnline(row.id)
+    }));
 
-  // ==================================================
-  // Jump to Reply Target
-  // ==================================================
-
-  function jumpToMessage(
-    messageId
-  ) {
-
-    if (
-      !messages ||
-      messageId === null ||
-      messageId === undefined
-    ) {
-
-      return;
-
-    }
-
-    const target =
-      messages.querySelector(
-        `[data-message-id="${CSS.escape(
-          String(messageId)
-        )}"]`
-      );
-
-    if (!target) {
-
-      return;
-
-    }
-
-    target.scrollIntoView({
-      behavior: "smooth",
-      block: "center"
+    members.sort((a, b) => {
+      if (a.online !== b.online) return a.online ? -1 : 1;
+      return a.name.localeCompare(b.name);
     });
 
-    target.classList.remove(
-      "message-highlight"
-    );
+    socket.emit("room members", { room, ownerId, members });
 
-    // CSS animation再発火
-    void target.offsetWidth;
-
-    target.classList.add(
-      "message-highlight"
-    );
-
-    setTimeout(
-      () => {
-
-        target.classList.remove(
-          "message-highlight"
-        );
-
-      },
-      1000
-    );
-
+  } catch (error) {
+    console.error("sendRoomMembers error:", error);
+    socket.emit("room members", { room, ownerId: null, members: [] });
   }
 
-  // ==================================================
-  // Update Message
-  // ==================================================
+}
 
-  function updateMessageElement(
-    message
-  ) {
+// ==================================================
+// サーバー（部屋）のチャンネル一覧を送信
+// ==================================================
 
-    if (!messages || !message) {
-      return;
-    }
+async function sendServerChannels(socket, roomId) {
 
-    const element =
-      messages.querySelector(
-        `[data-message-id="${CSS.escape(
-          String(message.id)
-        )}"]`
-      );
+  try {
 
-    if (!element) {
-      return;
-    }
-
-    const textElement =
-      element.querySelector(
-        ".message-text"
-      );
-
-    if (textElement) {
-
-      textElement.textContent =
-        message.text;
-
-    }
-
-    let editedElement =
-      element.querySelector(
-        ".message-edited"
-      );
-
-    if (
-      message.edited &&
-      !editedElement
-    ) {
-
-      editedElement =
-        document.createElement(
-          "span"
-        );
-
-      editedElement.className =
-        "message-edited";
-
-      editedElement.textContent =
-        "編集済み";
-
-      element
-        .querySelector(
-          ".message-header, .message-meta"
-        )
-        ?.appendChild(
-          editedElement
-        );
-
-    }
-
-  }
-
-  // ==================================================
-  // Reply
-  // ==================================================
-
-  function setReply(
-    message
-  ) {
-
-    if (!message) {
-      return;
-    }
-
-    replyToMessage =
-      message;
-
-    if (!replyPreview) {
-      return;
-    }
-
-    replyPreview.classList.remove(
-      "hidden"
+    const result = await pool.query(
+      `
+      SELECT id, name, position
+      FROM channels
+      WHERE room_id = $1
+      ORDER BY position ASC, created_at ASC
+      `,
+      [roomId]
     );
 
-    replyPreview.innerHTML = `
+    socket.emit("channels", {
+      roomId,
+      channels: result.rows.map(row => ({
+        id: row.id,
+        name: row.name,
+        position: row.position
+      }))
+    });
 
-      <span class="reply-preview-line"></span>
-
-      <div class="reply-preview-content">
-
-        <div class="reply-preview-label">
-          ↩ 返信
-        </div>
-
-        <div class="reply-preview-title">
-          ${escapeHtml(
-            message.username ||
-            "ユーザー"
-          )}
-        </div>
-
-        <div class="reply-preview-text">
-          ${escapeHtml(
-            message.text ||
-            ""
-          )}
-        </div>
-
-      </div>
-
-      <button
-        type="button"
-        class="reply-preview-close"
-        id="cancelReplyButton"
-        title="返信をキャンセル"
-      >
-        ×
-      </button>
-    `;
-
-    document
-      .getElementById(
-        "cancelReplyButton"
-      )
-      ?.addEventListener(
-        "click",
-        clearReply
-      );
-
-    messageInput?.focus();
-
+  } catch (error) {
+    console.error("sendServerChannels error:", error);
+    socket.emit("channels", { roomId, channels: [] });
   }
 
-  function clearReply() {
+}
 
-    replyToMessage =
-      null;
+// ==================================================
+// リアクション集計
+// ==================================================
 
-    replyPreview?.classList.add(
-      "hidden"
-    );
+async function fetchReactionsForMessages(messageIds, isDm) {
 
-    if (replyPreview) {
+  const map = new Map();
 
-      replyPreview.innerHTML =
-        "";
-
-    }
-
+  if (!messageIds || messageIds.length === 0) {
+    return map;
   }
 
-  // ==================================================
-  // Send Message
-  // ==================================================
+  const table = isDm ? "dm_message_reactions" : "message_reactions";
 
-  let lastTypingEmit = 0;
-
-  // ==================================================
-  // テキストエリア自動リサイズ
-  // ==================================================
-
-  function autoResizeTextarea() {
-    if (!messageInput) return;
-    messageInput.style.height = "auto";
-    const maxHeight = 120;
-    const newHeight = Math.min(messageInput.scrollHeight, maxHeight);
-    messageInput.style.height = newHeight + "px";
-    messageInput.style.overflowY =
-      messageInput.scrollHeight > maxHeight ? "auto" : "hidden";
-  }
-
-  messageInput?.addEventListener("input", () => {
-
-    autoResizeTextarea();
-
-    if (!socket || !socket.connected) return;
-    if (currentChatType === "dm") return;
-
-    const now = Date.now();
-
-    if (now - lastTypingEmit > 2000) {
-      lastTypingEmit = now;
-      socket.emit("typing", { room: currentRoomId });
-    }
-
-  });
-
-  // ==================================================
-  // Enter で改行、Ctrl+Enter で送信
-  // ==================================================
-
-  messageInput?.addEventListener("keydown", (event) => {
-
-    if (
-      (event.ctrlKey || event.metaKey) &&
-      event.key === "Enter"
-    ) {
-      event.preventDefault();
-      messageForm?.requestSubmit();
-      return;
-    }
-
-    // Shift+Enter はデフォルトで改行されるので何もしない
-    // 通常の Enter もデフォルトで改行される
-
-  });
-
-  messageForm?.addEventListener(
-    "submit",
-    (event) => {
-
-      event.preventDefault();
-
-      const text =
-        String(
-          messageInput?.value ||
-          ""
-        ).trim();
-
-      if (!text && !pendingImageDataUrl) {
-        return;
-      }
-
-      if (text.length > 5000) {
-
-        alert(
-          "メッセージが長すぎます。"
-        );
-
-        return;
-
-      }
-
-      if (
-        !socket ||
-        !socket.connected
-      ) {
-
-        alert(
-          "サーバーに接続されていません。"
-        );
-
-        return;
-
-      }
-
-      const image = pendingImageDataUrl || undefined;
-
-      if (currentChatType === "dm") {
-        socket.emit("dm message", {
-          conversationId: currentRoomId,
-          text,
-          image
-        });
-      } else {
-        socket.emit(
-          "chat message",
-          {
-            room: currentRoomId,
-            text,
-            image,
-            replyToId: replyToMessage ? replyToMessage.id : null
-          }
-        );
-      }
-
-      messageInput.value =
-        "";
-
-      autoResizeTextarea();
-
-      pendingImageDataUrl = null;
-      imageAttachPreview?.classList.add("hidden");
-      if (imageAttachPreviewImg) imageAttachPreviewImg.src = "";
-
-      clearReply();
-
-    }
+  const result = await pool.query(
+    `
+    SELECT message_id, emoji, array_agg(user_id) AS user_ids
+    FROM ${table}
+    WHERE message_id = ANY($1::bigint[])
+    GROUP BY message_id, emoji
+    ORDER BY MIN(created_at) ASC
+    `,
+    [messageIds]
   );
 
-  // ==================================================
-  // Edit Message
-  // ==================================================
+  for (const row of result.rows) {
 
-  function editMessage(
-    message
+    const key = String(row.message_id);
+
+    if (!map.has(key)) {
+      map.set(key, []);
+    }
+
+    map.get(key).push({
+      emoji: row.emoji,
+      userIds: row.user_ids.map(Number)
+    });
+
+  }
+
+  return map;
+
+}
+
+async function getReactionSummary(messageId, isDm) {
+
+  const map = await fetchReactionsForMessages([messageId], isDm);
+
+  return map.get(String(messageId)) || [];
+
+}
+
+// ==================================================
+// @メンション検出・通知
+// ==================================================
+
+async function processMentions(text, room, senderId, senderName, isDm, conversationId) {
+
+  try {
+
+    const mentionPattern = /@([^\s@]+)/g;
+    const names = new Set();
+    let match;
+
+    while ((match = mentionPattern.exec(text)) !== null) {
+      names.add(match[1]);
+    }
+
+    if (names.size === 0) return;
+
+    const result = await pool.query(
+      `SELECT id, name FROM users WHERE name = ANY($1::text[])`,
+      [Array.from(names)]
+    );
+
+    for (const row of result.rows) {
+
+      const mentionedId = Number(row.id);
+
+      if (mentionedId === Number(senderId)) continue;
+
+      notifyUser(mentionedId, "mention received", {
+        fromName: senderName,
+        room: isDm ? conversationId : room,
+        isDm: Boolean(isDm),
+        text: text.slice(0, 100)
+      });
+
+    }
+
+  } catch (error) {
+    console.error("processMentions error:", error);
+  }
+
+}
+
+// ==================================================
+// 現在の部屋から退出
+// ==================================================
+
+function leaveCurrentRooms(
+  socket
+) {
+
+  for (
+    const room of
+    Array.from(socket.rooms)
   ) {
 
-    if (!message) {
-      return;
-    }
-
-    const newText =
-      window.prompt(
-        "メッセージを編集",
-        message.text || ""
-      );
-
     if (
-      newText === null
+      room !== socket.id
     ) {
 
-      return;
-
-    }
-
-    const text =
-      newText.trim();
-
-    if (!text) {
-
-      alert(
-        "メッセージを空にはできません。"
+      socket.leave(
+        room
       );
 
-      return;
-
     }
 
-    if (text.length > 5000) {
+  }
 
-      alert(
-        "メッセージが長すぎます。"
+}
+
+// ==================================================
+// 過去メッセージ
+// ==================================================
+
+async function sendPreviousMessages(
+  socket,
+  room
+) {
+
+  try {
+
+    const result =
+      await pool.query(
+        `
+        SELECT
+          m.id,
+          m.room,
+          m.user_id,
+          m.username,
+          m.text,
+          m.image,
+          m.reply_to_id,
+          m.reply_to_username,
+          m.reply_to_text,
+          m.edited,
+          m.created_at,
+          u.avatar AS avatar
+
+        FROM messages m
+        LEFT JOIN users u ON u.id::text = m.user_id::text
+
+        WHERE m.room = $1
+          AND m.created_at >=
+            NOW() - INTERVAL '24 hours'
+
+        ORDER BY
+          m.created_at ASC
+
+        LIMIT 1000
+        `,
+        [
+          room
+        ]
       );
 
-      return;
+    const messageIds =
+      result.rows.map(row => row.id);
 
-    }
-
-    if (
-      !socket ||
-      !socket.connected
-    ) {
-
-      return;
-
-    }
+    const reactionsMap =
+      await fetchReactionsForMessages(messageIds, false);
 
     socket.emit(
-      "edit message",
-      {
-        id:
-          message.id,
-
-        text
-      }
+      "previous messages",
+      result.rows.map(row => {
+        const message = formatMessage(row);
+        message.reactions = reactionsMap.get(String(row.id)) || [];
+        return message;
+      })
     );
 
-  }
+  } catch (error) {
 
-  // ==================================================
-  // Delete Message
-  // ==================================================
-
-  function deleteMessage(
-    message
-  ) {
-
-    if (!message) {
-      return;
-    }
-
-    const confirmed =
-      window.confirm(
-        "このメッセージを削除しますか？"
-      );
-
-    if (!confirmed) {
-      return;
-    }
-
-    if (
-      !socket ||
-      !socket.connected
-    ) {
-
-      return;
-
-    }
+    console.error(
+      "previous messages error:",
+      error
+    );
 
     socket.emit(
-      "delete message",
-      {
-        id:
-          message.id
-      }
+      "previous messages",
+      []
     );
 
   }
 
-  // ==================================================
-  // Scroll
-  // ==================================================
+}
 
-  scrollTopButton?.addEventListener(
-    "click",
-    () => {
+// ==================================================
+// 古いメッセージ削除
+// ==================================================
 
-      messages?.scrollTo({
-        top: 0,
-        behavior: "smooth"
-      });
+async function cleanupOldMessages() {
 
-    }
-  );
+  try {
 
-  scrollBottomButton?.addEventListener(
-    "click",
-    () => {
+    const result =
+      await pool.query(
+        `
+        DELETE FROM messages
 
-      scrollToBottom(
-        true
+        WHERE created_at <
+          NOW() - INTERVAL '24 hours'
+        `
       );
 
-    }
-  );
-
-  newMessageButton?.addEventListener(
-    "click",
-    () => {
-
-      scrollToBottom(
-        true
-      );
-
-      newMessageButton.classList.add(
-        "hidden"
-      );
-
-    }
-  );
-
-  messages?.addEventListener(
-    "scroll",
-    () => {
-
-      if (
-        isNearBottom()
-      ) {
-
-        newMessageButton?.classList.add(
-          "hidden"
-        );
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // Settings
-  // ==================================================
-
-  function openSettings() {
-
-    settingsModal?.classList.remove(
-      "hidden"
-    );
-
-    loadSettings();
-
-  }
-
-  function closeSettings() {
-
-    settingsModal?.classList.add(
-      "hidden"
-    );
-
-  }
-
-  settingsButton?.addEventListener(
-    "click",
-    openSettings
-  );
-
-  closeSettingsButtons.forEach(
-    button => {
-
-      button.addEventListener(
-        "click",
-        closeSettings
-      );
-
-    }
-  );
-
-  // ==================================================
-  // View Profile Modal（Discordのユーザーカードのように、
-  // アイコン/名前クリックで自己紹介を表示）
-  // ==================================================
-
-  function setViewProfilePreview(avatarUrl, name) {
-
-    const letter =
-      (name || "U")
-        .trim()
-        .charAt(0)
-        .toUpperCase() || "U";
-
-    if (viewProfileAvatarFallback) {
-      viewProfileAvatarFallback.textContent = letter;
-    }
-
-    if (viewProfileAvatarImage) {
-
-      if (avatarUrl) {
-
-        viewProfileAvatarImage.src = avatarUrl;
-        viewProfileAvatarImage.classList.remove("hidden");
-        viewProfileAvatarFallback?.classList.add("hidden");
-
-      } else {
-
-        viewProfileAvatarImage.src = "";
-        viewProfileAvatarImage.classList.add("hidden");
-        viewProfileAvatarFallback?.classList.remove("hidden");
-
-      }
-
-    }
-
-  }
-
-  function closeViewProfileModal() {
-    viewProfileModal?.classList.add("hidden");
-  }
-
-  async function openUserProfile(userId, fallbackName, fallbackAvatar) {
-
-    if (!userId || !viewProfileModal) {
-      return;
-    }
-
-    // 自分自身の場合は編集モーダルを直接開く
     if (
-      currentUser &&
-      Number(userId) === Number(currentUser.id)
+      result.rowCount > 0
     ) {
 
-      openProfileModal();
-
-      return;
+      console.log(
+        `古いメッセージを ${result.rowCount} 件削除しました。`
+      );
 
     }
 
-    if (viewProfileName) viewProfileName.textContent = fallbackName || "ユーザー";
-    if (viewProfileBio) viewProfileBio.textContent = "";
+  } catch (error) {
 
-    setViewProfilePreview(fallbackAvatar || null, fallbackName);
+    console.error(
+      "cleanupOldMessages error:",
+      error
+    );
 
-    editOwnProfileButton?.classList.add("hidden");
-    viewProfileFriendButton?.classList.add("hidden");
-    if (viewProfileFriendMessage) viewProfileFriendMessage.textContent = "";
+  }
 
-    viewedProfileUserId = Number(userId);
+}
 
-    viewProfileQuestionButton?.classList.remove("hidden");
-    viewProfileReportButton?.classList.remove("hidden");
-    viewProfileQABoard?.classList.add("hidden");
-    if (viewProfileQAList) viewProfileQAList.innerHTML = "";
+setInterval(
+  cleanupOldMessages,
+  10 *
+  60 *
+  1000
+);
 
-    viewProfileModal.classList.remove("hidden");
+// ==================================================
+// Health Check
+// ==================================================
+
+app.get(
+  "/health",
+  async (req, res) => {
 
     try {
 
-      const data = await api(`/api/users/${userId}`);
+      await pool.query(
+        "SELECT 1"
+      );
 
-      if (data?.user) {
-
-        if (viewProfileName) viewProfileName.textContent = data.user.name || "ユーザー";
-
-        if (viewProfileBio) {
-          viewProfileBio.textContent =
-            data.user.bio && data.user.bio.trim()
-              ? data.user.bio
-              : "自己紹介はまだありません。";
-        }
-
-        setViewProfilePreview(data.user.avatar || null, data.user.name);
-
-        renderFriendButton(data.user.friendStatus, data.user.friendRequestId);
-
-      }
-
-    } catch (error) {
-
-      if (viewProfileBio) {
-        viewProfileBio.textContent = "プロフィールを取得できませんでした。";
-      }
-
-    }
-
-    loadPublicQABoard(viewedProfileUserId);
-
-  }
-
-  async function loadPublicQABoard(userId) {
-
-    try {
-
-      const data = await api(`/api/questions/answered/${userId}`);
-      const list = Array.isArray(data?.questions) ? data.questions : [];
-
-      if (list.length === 0 || !viewProfileQAList || !viewProfileQABoard) {
-        return;
-      }
-
-      viewProfileQABoard.classList.remove("hidden");
-
-      viewProfileQAList.innerHTML = list.map(item => `
-        <div class="qa-item">
-          <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
-          <div class="qa-answer">↳ ${escapeHtml(item.answer)}</div>
-        </div>
-      `).join("");
-
-    } catch (error) {
-      console.error("loadPublicQABoard error:", error);
-    }
-
-  }
-
-  function renderFriendButton(status, requestId) {
-
-    if (!viewProfileFriendButton) return;
-
-    viewProfileFriendButton.classList.remove("hidden");
-    viewProfileFriendButton.disabled = false;
-    viewProfileFriendButton.className = "secondary-button";
-
-    if (status === "friends") {
-
-      viewProfileFriendButton.textContent = "フレンドを解除";
-      viewProfileFriendButton.classList.add("danger");
-      viewProfileFriendButton.onclick = async () => {
-        viewProfileFriendButton.disabled = true;
-        try {
-          await removeFriendRequest(requestId);
-          renderFriendButton("none", null);
-        } catch (error) {
-          if (viewProfileFriendMessage) viewProfileFriendMessage.textContent = error.message || "処理できませんでした。";
-          viewProfileFriendButton.disabled = false;
-        }
-      };
-
-    } else if (status === "outgoing") {
-
-      viewProfileFriendButton.textContent = "申請を取り消す";
-      viewProfileFriendButton.onclick = async () => {
-        viewProfileFriendButton.disabled = true;
-        try {
-          await removeFriendRequest(requestId);
-          renderFriendButton("none", null);
-        } catch (error) {
-          if (viewProfileFriendMessage) viewProfileFriendMessage.textContent = error.message || "処理できませんでした。";
-          viewProfileFriendButton.disabled = false;
-        }
-      };
-
-    } else if (status === "incoming") {
-
-      viewProfileFriendButton.textContent = "フレンド申請を承認";
-      viewProfileFriendButton.onclick = async () => {
-        viewProfileFriendButton.disabled = true;
-        try {
-          await acceptFriendRequest(requestId);
-          renderFriendButton("friends", requestId);
-        } catch (error) {
-          if (viewProfileFriendMessage) viewProfileFriendMessage.textContent = error.message || "処理できませんでした。";
-          viewProfileFriendButton.disabled = false;
-        }
-      };
-
-    } else {
-
-      viewProfileFriendButton.textContent = "＋ フレンド申請を送る";
-      viewProfileFriendButton.onclick = async () => {
-        viewProfileFriendButton.disabled = true;
-        try {
-          const data = await sendFriendRequest(viewedProfileUserId);
-          renderFriendButton(data?.status === "accepted" ? "friends" : "outgoing", null);
-        } catch (error) {
-          if (viewProfileFriendMessage) viewProfileFriendMessage.textContent = error.message || "フレンド申請を送れませんでした。";
-          viewProfileFriendButton.disabled = false;
-        }
-      };
-
-    }
-
-  }
-
-  closeViewProfileButton?.addEventListener("click", closeViewProfileModal);
-
-  viewProfileModal?.addEventListener("click", (event) => {
-
-    if (event.target === viewProfileModal) {
-      closeViewProfileModal();
-    }
-
-  });
-
-  // ==================================================
-  // 質問箱：質問を送る
-  // ==================================================
-
-  function openAskQuestionModal() {
-    if (!askQuestionModal) return;
-    if (questionInput) questionInput.value = "";
-    if (askQuestionMessage) askQuestionMessage.textContent = "";
-    askQuestionModal.classList.remove("hidden");
-  }
-
-  function closeAskQuestionModal() {
-    askQuestionModal?.classList.add("hidden");
-  }
-
-  viewProfileQuestionButton?.addEventListener("click", () => {
-    closeViewProfileModal();
-    openAskQuestionModal();
-  });
-
-  closeAskQuestionButton?.addEventListener("click", closeAskQuestionModal);
-
-  askQuestionModal?.addEventListener("click", (event) => {
-    if (event.target === askQuestionModal) closeAskQuestionModal();
-  });
-
-  sendQuestionButton?.addEventListener("click", async () => {
-
-    const question = String(questionInput?.value || "").trim();
-
-    if (!question) {
-      if (askQuestionMessage) askQuestionMessage.textContent = "質問を入力してください。";
-      return;
-    }
-
-    try {
-
-      await api("/api/questions", {
-        method: "POST",
-        body: JSON.stringify({ toUserId: viewedProfileUserId, question })
+      res.json({
+        status: "ok",
+        database: "connected"
       });
 
-      if (askQuestionMessage) askQuestionMessage.textContent = "送信しました！";
-
-      setTimeout(closeAskQuestionModal, 700);
-
     } catch (error) {
-      if (askQuestionMessage) askQuestionMessage.textContent = error.message || "送信できませんでした。";
-    }
 
-  });
-
-  // ==================================================
-  // 質問箱：受信トレイ
-  // ==================================================
-
-  function openQuestionInboxModal() {
-    questionInboxModal?.classList.remove("hidden");
-    loadQuestionInbox();
-  }
-
-  function closeQuestionInboxModal() {
-    questionInboxModal?.classList.add("hidden");
-  }
-
-  closeQuestionInboxButton?.addEventListener("click", closeQuestionInboxModal);
-
-  questionInboxModal?.addEventListener("click", (event) => {
-    if (event.target === questionInboxModal) closeQuestionInboxModal();
-  });
-
-  async function loadQuestionInbox() {
-
-    try {
-
-      const data = await api("/api/questions/inbox");
-      const list = Array.isArray(data?.questions) ? data.questions : [];
-
-      questionInboxEmpty?.classList.toggle("hidden", list.length > 0);
-
-      if (!questionInboxList) return;
-
-      questionInboxList.innerHTML = "";
-
-      for (const item of list) {
-
-        const row = document.createElement("div");
-        row.className = "qa-inbox-item";
-
-        if (item.answer) {
-
-          row.innerHTML = `
-            <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
-            <div class="qa-answer">↳ ${escapeHtml(item.answer)}</div>
-          `;
-
-        } else {
-
-          row.innerHTML = `
-            <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
-            <textarea class="qa-answer-input" placeholder="回答を書く..." maxlength="500"></textarea>
-            <div class="qa-inbox-actions">
-              <button type="button" class="secondary-button qa-skip-button">削除</button>
-              <button type="button" class="primary-button qa-answer-button">回答する</button>
-            </div>
-          `;
-
-          const textarea = row.querySelector(".qa-answer-input");
-
-          row.querySelector(".qa-answer-button")?.addEventListener("click", async () => {
-
-            const answer = String(textarea?.value || "").trim();
-
-            if (!answer) return;
-
-            try {
-              await api(`/api/questions/${item.id}/answer`, {
-                method: "POST",
-                body: JSON.stringify({ answer })
-              });
-              loadQuestionInbox();
-            } catch (error) {
-              alert(error.message || "回答できませんでした。");
-            }
-
-          });
-
-          row.querySelector(".qa-skip-button")?.addEventListener("click", async () => {
-
-            try {
-              await api(`/api/questions/${item.id}`, { method: "DELETE" });
-              loadQuestionInbox();
-            } catch (error) {
-              alert(error.message || "削除できませんでした。");
-            }
-
-          });
-
-        }
-
-        questionInboxList.appendChild(row);
-
-      }
-
-    } catch (error) {
-      console.error("loadQuestionInbox error:", error);
-    }
-
-  }
-
-  // ==================================================
-  // 通報
-  // ==================================================
-
-  function openReportModal(target) {
-
-    pendingReportTarget = target;
-
-    if (reportModal) {
-      if (reportReasonSelect) reportReasonSelect.value = "spam";
-      if (reportDetailInput) reportDetailInput.value = "";
-      if (reportMessage) reportMessage.textContent = "";
-      reportModal.classList.remove("hidden");
-    }
-
-  }
-
-  function closeReportModal() {
-    reportModal?.classList.add("hidden");
-    pendingReportTarget = null;
-  }
-
-  viewProfileReportButton?.addEventListener("click", () => {
-    openReportModal({ targetUserId: viewedProfileUserId });
-  });
-
-  closeReportButton?.addEventListener("click", closeReportModal);
-
-  reportModal?.addEventListener("click", (event) => {
-    if (event.target === reportModal) closeReportModal();
-  });
-
-  submitReportButton?.addEventListener("click", async () => {
-
-    if (!pendingReportTarget) return;
-
-    const reason = reportReasonSelect?.value || "other";
-    const detail = String(reportDetailInput?.value || "").trim();
-
-    try {
-
-      await api("/api/reports", {
-        method: "POST",
-        body: JSON.stringify({ ...pendingReportTarget, reason, detail })
-      });
-
-      if (reportMessage) reportMessage.textContent = "通報を受け付けました。ご協力ありがとうございます。";
-
-      setTimeout(closeReportModal, 900);
-
-    } catch (error) {
-      if (reportMessage) reportMessage.textContent = error.message || "送信できませんでした。";
-    }
-
-  });
-
-  openQuestionInboxButton?.addEventListener("click", () => {
-    closeSettings();
-    openQuestionInboxModal();
-  });
-
-  // ==================================================
-  // 管理者パネル
-  // ==================================================
-
-  function openAdminPanel() {
-    adminPanelModal?.classList.remove("hidden");
-    switchAdminTab("reports");
-    loadAdminReports();
-  }
-
-  function closeAdminPanel() {
-    adminPanelModal?.classList.add("hidden");
-  }
-
-  openAdminPanelButton?.addEventListener("click", () => {
-    closeSettings();
-    openAdminPanel();
-  });
-
-  closeAdminPanelButton?.addEventListener("click", closeAdminPanel);
-
-  adminPanelModal?.addEventListener("click", (event) => {
-    if (event.target === adminPanelModal) closeAdminPanel();
-  });
-
-  function switchAdminTab(tab) {
-
-    document.querySelectorAll("[data-admin-tab]").forEach(button => {
-      button.classList.toggle("active", button.dataset.adminTab === tab);
-    });
-
-    adminPanelReports?.classList.toggle("hidden", tab !== "reports");
-    adminPanelUsers?.classList.toggle("hidden", tab !== "users");
-
-  }
-
-  document.querySelectorAll("[data-admin-tab]").forEach(button => {
-    button.addEventListener("click", () => switchAdminTab(button.dataset.adminTab));
-  });
-
-  async function loadAdminReports() {
-
-    try {
-
-      const data = await api("/api/admin/reports");
-      const list = Array.isArray(data?.reports) ? data.reports : [];
-
-      adminReportsEmpty?.classList.toggle("hidden", list.length > 0);
-
-      if (!adminReportsList) return;
-
-      adminReportsList.innerHTML = "";
-
-      const reasonLabels = {
-        spam: "スパム・宣伝",
-        harassment: "嫌がらせ・誹謗中傷",
-        inappropriate: "不適切なコンテンツ",
-        impersonation: "なりすまし",
-        other: "その他"
-      };
-
-      for (const report of list) {
-
-        const item = document.createElement("div");
-        item.className = "admin-report-item";
-
-        item.innerHTML = `
-          <div class="admin-report-header">
-            <span class="admin-report-reason">${escapeHtml(reasonLabels[report.reason] || report.reason)}</span>
-            <span class="admin-report-time">${formatTime(report.createdAt)}</span>
-          </div>
-          ${report.targetUserName ? `<div class="admin-report-line">対象ユーザー: ${escapeHtml(report.targetUserName)}</div>` : ""}
-          ${report.targetMessageText ? `<div class="admin-report-line">メッセージ: 「${escapeHtml(report.targetMessageText)}」</div>` : ""}
-          ${report.detail ? `<div class="admin-report-line">詳細: ${escapeHtml(report.detail)}</div>` : ""}
-          <div class="admin-report-line admin-report-reporter">報告者: ${escapeHtml(report.reporterName)}</div>
-          <button type="button" class="secondary-button admin-resolve-button">対応済みにする</button>
-        `;
-
-        item.querySelector(".admin-resolve-button")?.addEventListener("click", async () => {
-          try {
-            await api(`/api/admin/reports/${report.id}/resolve`, { method: "POST" });
-            loadAdminReports();
-          } catch (error) {
-            alert(error.message || "処理できませんでした。");
-          }
+      console.error(
+        "health check error:",
+        error
+      );
+
+      res
+        .status(500)
+        .json({
+          status: "error",
+          database: "disconnected"
         });
 
-        adminReportsList.appendChild(item);
-
-      }
-
-    } catch (error) {
-      console.error("loadAdminReports error:", error);
     }
 
   }
-
-  let adminUserSearchTimeout = null;
-
-  adminUserSearchInput?.addEventListener("input", () => {
-
-    clearTimeout(adminUserSearchTimeout);
-
-    adminUserSearchTimeout = setTimeout(async () => {
-
-      const q = adminUserSearchInput.value.trim();
-
-      if (!q) {
-        if (adminUsersList) adminUsersList.innerHTML = "";
-        return;
-      }
-
-      try {
-
-        const data = await api(`/api/admin/users/search?q=${encodeURIComponent(q)}`);
-        const list = Array.isArray(data?.users) ? data.users : [];
-
-        if (!adminUsersList) return;
-
-        adminUsersList.innerHTML = "";
-
-        for (const item of list) {
-
-          const row = document.createElement("div");
-          row.className = "admin-user-item";
-
-          row.innerHTML = `
-            <span class="user-search-avatar">${avatarInnerHtml(item.avatar, item.name)}</span>
-            <span class="admin-user-name">${escapeHtml(item.name)}${item.isAdmin ? " 🛡️" : ""}</span>
-            <button type="button" class="secondary-button danger admin-delete-user-button">削除</button>
-          `;
-
-          row.querySelector(".admin-delete-user-button")?.addEventListener("click", async () => {
-
-            if (!confirm(`「${item.name}」を削除しますか？この操作は取り消せません。`)) return;
-
-            try {
-              await api(`/api/admin/users/${item.id}`, { method: "DELETE" });
-              row.remove();
-            } catch (error) {
-              alert(error.message || "削除できませんでした。");
-            }
-
-          });
-
-          adminUsersList.appendChild(row);
-
-        }
-
-      } catch (error) {
-        console.error("admin user search error:", error);
-      }
-
-    }, 300);
-
-  });
-
-  editOwnProfileButton?.addEventListener("click", () => {
-    closeViewProfileModal();
-    openProfileModal();
-  });
-
-  // ==================================================
-  // Profile Modal（アイコン・自己紹介）
-  // ==================================================
-
-  function openProfileModal() {
-
-    if (!profileModal || !currentUser) {
-      return;
-    }
-
-    pendingAvatarDataUrl = undefined;
-
-    if (profileNameInput) {
-      profileNameInput.value = currentUser.name || "";
-    }
-
-    if (profileBioInput) {
-      profileBioInput.value = currentUser.bio || "";
-    }
-
-    if (profileMessage) {
-      profileMessage.textContent = "";
-    }
-
-    setProfilePreview(currentUser.avatar || null, currentUser.name);
-
-    profileModal.classList.remove("hidden");
-
-  }
-
-  function closeProfileModal() {
-    profileModal?.classList.add("hidden");
-  }
-
-  function setProfilePreview(avatarUrl, name) {
-
-    const letter =
-      (name || "U")
-        .trim()
-        .charAt(0)
-        .toUpperCase() || "U";
-
-    if (profileAvatarFallback) {
-      profileAvatarFallback.textContent = letter;
-    }
-
-    if (profileAvatarImage) {
-
-      if (avatarUrl) {
-
-        profileAvatarImage.src = avatarUrl;
-        profileAvatarImage.classList.remove("hidden");
-
-        if (profileAvatarFallback) {
-          profileAvatarFallback.classList.add("hidden");
-        }
-
-        removeAvatarButton?.classList.remove("hidden");
-
-      } else {
-
-        profileAvatarImage.src = "";
-        profileAvatarImage.classList.add("hidden");
-
-        if (profileAvatarFallback) {
-          profileAvatarFallback.classList.remove("hidden");
-        }
-
-        removeAvatarButton?.classList.add("hidden");
-
-      }
-
-    }
-
-  }
-
-  function resizeImageFile(file, options = {}) {
-
-    const maxSize = options.maxSize || 256;
-    const quality = options.quality || 0.85;
-
-    return new Promise((resolve, reject) => {
-
-      const reader = new FileReader();
-
-      reader.onerror = () => reject(new Error("画像を読み込めませんでした。"));
-
-      reader.onload = () => {
-
-        const img = new Image();
-
-        img.onerror = () => reject(new Error("画像を読み込めませんでした。"));
-
-        img.onload = () => {
-
-          let { width, height } = img;
-
-          if (width > height) {
-
-            if (width > maxSize) {
-              height = Math.round(height * (maxSize / width));
-              width = maxSize;
-            }
-
-          } else {
-
-            if (height > maxSize) {
-              width = Math.round(width * (maxSize / height));
-              height = maxSize;
-            }
-
-          }
-
-          const canvas = document.createElement("canvas");
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, width, height);
-
-          resolve(canvas.toDataURL("image/jpeg", quality));
-
-        };
-
-        img.src = reader.result;
-
-      };
-
-      reader.readAsDataURL(file);
-
-    });
-
-  }
-
-  profileAvatarButton?.addEventListener("click", () => {
-    profileAvatarInput?.click();
-  });
-
-  // ==================================================
-  // チャット画像添付
-  // ==================================================
-
-  imageAttachButton?.addEventListener("click", () => {
-    imageAttachInput?.click();
-  });
-
-  imageAttachInput?.addEventListener("change", async () => {
-
-    const file = imageAttachInput.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
-      alert("画像ファイルを選んでください。");
-      imageAttachInput.value = "";
-      return;
-    }
-
-    try {
-
-      const dataUrl = await resizeImageFile(file, { maxSize: 1000, quality: 0.75 });
-
-      pendingImageDataUrl = dataUrl;
-
-      if (imageAttachPreviewImg) imageAttachPreviewImg.src = dataUrl;
-      imageAttachPreview?.classList.remove("hidden");
-
-    } catch (error) {
-
-      alert(error.message || "画像を処理できませんでした。");
-
-    } finally {
-
-      imageAttachInput.value = "";
-
-    }
-
-  });
-
-  removeImageAttachButton?.addEventListener("click", () => {
-
-    pendingImageDataUrl = null;
-    imageAttachPreview?.classList.add("hidden");
-    if (imageAttachPreviewImg) imageAttachPreviewImg.src = "";
-
-  });
-
-  profileAvatarInput?.addEventListener("change", async () => {
-
-    const file = profileAvatarInput.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
-      if (profileMessage) profileMessage.textContent = "画像ファイルを選んでください。";
-      return;
-    }
-
-    try {
-
-      const dataUrl = await resizeImageFile(file);
-      pendingAvatarDataUrl = dataUrl;
-      setProfilePreview(dataUrl, profileNameInput?.value || currentUser?.name);
-
-      if (profileMessage) profileMessage.textContent = "";
-
-    } catch (error) {
-
-      if (profileMessage) profileMessage.textContent = error.message || "画像を処理できませんでした。";
-
-    } finally {
-
-      profileAvatarInput.value = "";
-
-    }
-
-  });
-
-  removeAvatarButton?.addEventListener("click", () => {
-
-    pendingAvatarDataUrl = null;
-    setProfilePreview(null, profileNameInput?.value || currentUser?.name);
-
-  });
-
-  saveProfileButton?.addEventListener("click", async () => {
-
-    const name = String(profileNameInput?.value || "").trim();
-    const bio = String(profileBioInput?.value || "");
-
-    if (!name) {
-      if (profileMessage) profileMessage.textContent = "名前を入力してください。";
-      return;
-    }
-
-    const payload = { name, bio };
-
-    if (pendingAvatarDataUrl !== undefined) {
-      payload.avatar = pendingAvatarDataUrl;
-    }
-
-    try {
-
-      if (profileMessage) profileMessage.textContent = "保存しています…";
-
-      const data = await api("/api/profile", {
-        method: "PUT",
-        body: JSON.stringify(payload)
-      });
-
-      if (data?.user) {
-        currentUser = data.user;
-        updateUserUI();
-      }
-
-      pendingAvatarDataUrl = undefined;
-
-      if (profileMessage) profileMessage.textContent = "保存しました。";
-
-      setTimeout(closeProfileModal, 400);
-
-    } catch (error) {
-
-      if (profileMessage) profileMessage.textContent = error.message || "保存できませんでした。";
-
-    }
-
-  });
-
-  usernameInput?.addEventListener("click", openProfileModal);
-
-  usernameInput?.addEventListener("keydown", (event) => {
-
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      openProfileModal();
-    }
-
-  });
-
-  userAvatarWrapper?.addEventListener("click", openProfileModal);
-
-  closeProfileButton?.addEventListener("click", closeProfileModal);
-
-  profileModal?.addEventListener("click", (event) => {
-
-    if (event.target === profileModal) {
-      closeProfileModal();
-    }
-
-  });
-
-  function loadSettings() {
-
-    const theme = getStoredTheme();
-
-    setActiveTheme(theme);
-
-    const language =
-      localStorage.getItem(
-        "veylo-language"
-      ) || "ja";
-
-    if (languageSelect) {
-
-      languageSelect.value =
-        language;
-
-    }
-
-    applyLanguage(language);
-
-    const soundEnabled =
-      localStorage.getItem("veylo-notification-sound") === "true";
-
-    if (notificationSoundToggleButton) {
-      notificationSoundToggleButton.textContent = soundEnabled ? "ON" : "OFF";
-    }
-
-    const desktopEnabled =
-      localStorage.getItem("veylo-desktop-notifications") === "true";
-
-    if (desktopNotificationToggleButton) {
-      desktopNotificationToggleButton.textContent = desktopEnabled ? "ON" : "OFF";
-    }
-
-  }
-
-  function applyTheme(
-    enabled
-  ) {
-
-    document.body.classList.toggle(
-      "dark-mode",
-      Boolean(enabled)
+);
+
+// ==================================================
+// SPA fallback
+// ==================================================
+
+app.get(
+  "*",
+  (req, res) => {
+
+    res.sendFile(
+      path.join(
+        __dirname,
+        "public",
+        "index.html"
+      )
     );
 
   }
+);
 
-  function applyGrayMode(
-    enabled
-  ) {
+// ==================================================
+// 起動
+// ==================================================
 
-    document.body.classList.toggle(
-      "gray-mode",
-      Boolean(enabled)
+async function start() {
+
+  try {
+
+    await initDatabase();
+
+    await cleanupOldMessages();
+
+    server.listen(
+      PORT,
+      "0.0.0.0",
+      () => {
+
+        console.log(
+          "=========================================="
+        );
+
+        console.log(
+          "コンネついーと server started."
+        );
+
+        console.log(
+          `PORT: ${PORT}`
+        );
+
+        console.log(
+          "=========================================="
+        );
+
+      }
     );
 
-  }
-
-  // ==================================================
-  // 多言語対応（UIの主要な文言のみ）
-  // ==================================================
-
-  const TRANSLATIONS = {
-    ja: {
-      tagline: "気軽につながるチャット",
-      login_title: "ログイン",
-      username_label: "ユーザー名",
-      password_label: "パスワード",
-      login_button: "ログイン",
-      forgot_password: "パスワードを忘れた方",
-      show_register: "新規登録",
-      register_title: "新規登録",
-      email_label: "メールアドレス",
-      register_button: "登録する",
-      back_to_login: "ログインに戻る",
-      send_reset_email: "リセットメールを送信",
-      rooms_section: "ルーム",
-      casual: "雑談",
-      create_room: "部屋を作成",
-      join_room: "部屋に参加",
-      friends: "フレンド",
-      direct_messages: "ダイレクトメッセージ",
-      notifications: "通知",
-      settings: "設定",
-      theme: "テーマ",
-      theme_desc: "画面の配色を選べます",
-      theme_light: "☀️ ライト",
-      theme_dark: "🌙 ダーク",
-      theme_gray: "◑ グレー",
-      language: "言語",
-      notification_sound: "通知音",
-      notification_sound_desc: "新しいメッセージが届いたときに音を鳴らします",
-      desktop_notification: "デスクトップ通知",
-      desktop_notification_desc: "他のタブを見ているときに通知を表示します",
-      change_password: "パスワード変更",
-      current_password: "現在のパスワード",
-      new_password: "新しいパスワード（8文字以上）",
-      change_password_button: "パスワードを変更",
-      delete_account: "アカウント削除",
-      delete_account_desc: "アカウントとすべてのメッセージ・部屋・DMが完全に削除されます。この操作は取り消せません。",
-      confirm_password: "確認のためパスワードを入力",
-      delete_account_button: "アカウントを削除する",
-      logout: "ログアウト",
-      close: "閉じる",
-      save: "保存",
-
-      message_placeholder: "メッセージを入力...",
-      members_title: "メンバー",
-      online_label: "オンライン",
-      offline_label: "オフライン",
-      add_channel: "チャンネルを作成",
-      new_dm: "新しいDMを始める",
-      no_dms: "まだDMはありません",
-      search_users: "ユーザーを検索",
-      clear_all: "すべて既読",
-      no_notifications: "通知はありません",
-
-      friends_tab_friends: "フレンド",
-      friends_tab_incoming: "受信リクエスト",
-      friends_tab_outgoing: "送信済み",
-      no_friends: "まだフレンドがいません",
-      no_incoming: "届いているリクエストはありません",
-      no_outgoing: "送信中のリクエストはありません",
-
-      send_question: "質問を送る",
-      ask_question_title: "質問を送る",
-      ask_question_desc: "この質問は匿名で届きます。相手が回答すると公開されます。",
-      question_placeholder: "聞きたいことを書いてください",
-      send: "送信する",
-      question_inbox_title: "質問箱に届いた質問",
-      no_questions: "まだ質問は届いていません",
-      qa_board_title: "質問箱",
-      answer_placeholder: "回答を書く...",
-      answer_button: "回答する",
-
-      report_button: "通報",
-      report_title: "通報する",
-      report_reason_label: "理由",
-      report_reason_spam: "スパム・宣伝",
-      report_reason_harassment: "嫌がらせ・誹謗中傷",
-      report_reason_inappropriate: "不適切なコンテンツ",
-      report_reason_impersonation: "なりすまし",
-      report_reason_other: "その他",
-      report_detail_label: "詳細（任意）",
-      report_detail_placeholder: "詳しい状況があれば教えてください",
-      submit_report: "通報を送信"
-    },
-    en: {
-      tagline: "A casual place to chat",
-      login_title: "Log In",
-      username_label: "Username",
-      password_label: "Password",
-      login_button: "Log In",
-      forgot_password: "Forgot password?",
-      show_register: "Sign Up",
-      register_title: "Sign Up",
-      email_label: "Email address",
-      register_button: "Sign Up",
-      back_to_login: "Back to login",
-      send_reset_email: "Send reset email",
-      rooms_section: "Rooms",
-      casual: "Casual",
-      create_room: "Create Room",
-      join_room: "Join Room",
-      friends: "Friends",
-      direct_messages: "Direct Messages",
-      notifications: "Notifications",
-      settings: "Settings",
-      theme: "Theme",
-      theme_desc: "Choose the app's color scheme",
-      theme_light: "☀️ Light",
-      theme_dark: "🌙 Dark",
-      theme_gray: "◑ Gray",
-      language: "Language",
-      notification_sound: "Notification sound",
-      notification_sound_desc: "Play a sound when a new message arrives",
-      desktop_notification: "Desktop notifications",
-      desktop_notification_desc: "Show a notification when you're on another tab",
-      change_password: "Change Password",
-      current_password: "Current password",
-      new_password: "New password (8+ characters)",
-      change_password_button: "Change Password",
-      delete_account: "Delete Account",
-      delete_account_desc: "Your account and all messages, rooms, and DMs will be permanently deleted. This cannot be undone.",
-      confirm_password: "Enter your password to confirm",
-      delete_account_button: "Delete Account",
-      logout: "Log Out",
-      close: "Close",
-      save: "Save",
-
-      message_placeholder: "Type a message...",
-      members_title: "Members",
-      online_label: "Online",
-      offline_label: "Offline",
-      add_channel: "Create Channel",
-      new_dm: "Start a new DM",
-      no_dms: "No DMs yet",
-      search_users: "Search Users",
-      clear_all: "Mark all as read",
-      no_notifications: "No notifications",
-
-      friends_tab_friends: "Friends",
-      friends_tab_incoming: "Incoming Requests",
-      friends_tab_outgoing: "Sent Requests",
-      no_friends: "No friends yet",
-      no_incoming: "No incoming requests",
-      no_outgoing: "No sent requests",
-
-      send_question: "Send a Question",
-      ask_question_title: "Send a Question",
-      ask_question_desc: "This question will be sent anonymously. It becomes public once answered.",
-      question_placeholder: "Write what you'd like to ask",
-      send: "Send",
-      question_inbox_title: "Questions You've Received",
-      no_questions: "No questions yet",
-      qa_board_title: "Q&A Box",
-      answer_placeholder: "Write an answer...",
-      answer_button: "Answer",
-
-      report_button: "Report",
-      report_title: "Report",
-      report_reason_label: "Reason",
-      report_reason_spam: "Spam / Advertising",
-      report_reason_harassment: "Harassment / Abuse",
-      report_reason_inappropriate: "Inappropriate Content",
-      report_reason_impersonation: "Impersonation",
-      report_reason_other: "Other",
-      report_detail_label: "Details (optional)",
-      report_detail_placeholder: "Share more details if you can",
-      submit_report: "Submit Report"
-    }
-  };
-
-  function applyLanguage(lang) {
-
-    const dict =
-      TRANSLATIONS[lang] || TRANSLATIONS.ja;
-
-    document.querySelectorAll("[data-i18n]").forEach(el => {
-
-      const key = el.dataset.i18n;
-
-      if (dict[key] !== undefined) {
-        el.textContent = dict[key];
-      }
-
-    });
-
-    document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
-
-      const key = el.dataset.i18nPlaceholder;
-
-      if (dict[key] !== undefined) {
-        el.setAttribute("placeholder", dict[key]);
-      }
-
-    });
-
-    document.querySelectorAll("[data-i18n-title]").forEach(el => {
-
-      const key = el.dataset.i18nTitle;
-
-      if (dict[key] !== undefined) {
-        el.setAttribute("title", dict[key]);
-      }
-
-    });
-
-    document.documentElement.lang = lang === "en" ? "en" : "ja";
-
-  }
-
-  function t(key) {
-
-    const lang =
-      localStorage.getItem("veylo-language") || "ja";
-
-    const dict =
-      TRANSLATIONS[lang] || TRANSLATIONS.ja;
-
-    return dict[key] !== undefined ? dict[key] : (TRANSLATIONS.ja[key] || key);
-
-  }
-
-  function getStoredTheme() {
-
-    const stored =
-      localStorage.getItem("veylo-theme");
-
-    if (stored === "light" || stored === "dark" || stored === "gray") {
-      return stored;
-    }
-
-    // 旧バージョン（ダーク/グレー個別トグル）からの移行
-    if (localStorage.getItem("veylo-dark-mode") === "true") {
-      return "dark";
-    }
-
-    if (localStorage.getItem("veylo-gray-mode") === "true") {
-      return "gray";
-    }
-
-    return "light";
-
-  }
-
-  function setActiveTheme(theme) {
-
-    localStorage.setItem("veylo-theme", theme);
-
-    applyTheme(theme === "dark");
-    applyGrayMode(theme === "gray");
-
-    themeSelector
-      ?.querySelectorAll(".theme-option")
-      .forEach(button => {
-        button.classList.toggle(
-          "active",
-          button.dataset.theme === theme
-        );
-      });
-
-  }
-
-  themeSelector
-    ?.querySelectorAll(".theme-option")
-    .forEach(button => {
-
-      button.addEventListener("click", () => {
-        setActiveTheme(button.dataset.theme);
-      });
-
-    });
-
-  // ==================================================
-  // 通知音 / デスクトップ通知
-  // ==================================================
-
-  function playNotificationSound() {
-
-    try {
-
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
-      if (!AudioCtx) return;
-
-      const ctx = new AudioCtx();
-      const oscillator = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      oscillator.type = "sine";
-      oscillator.frequency.value = 880;
-
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
-
-      oscillator.connect(gain);
-      gain.connect(ctx.destination);
-
-      oscillator.start();
-      oscillator.stop(ctx.currentTime + 0.35);
-
-      oscillator.onended = () => ctx.close();
-
-    } catch (error) {
-
-      console.error("notification sound error:", error);
-
-    }
-
-  }
-
-  function showDesktopNotification(title, body) {
-
-    if (!("Notification" in window)) return;
-    if (Notification.permission !== "granted") return;
-
-    try {
-
-      const notification = new Notification(title, {
-        body: body || "",
-        icon: "/favicon.ico"
-      });
-
-      notification.onclick = () => {
-        window.focus();
-        notification.close();
-      };
-
-    } catch (error) {
-
-      console.error("desktop notification error:", error);
-
-    }
-
-  }
-
-  function notifyIncomingMessage(message) {
-
-    if (!message || !currentUser) return;
-    if (Number(message.userId) === Number(currentUser.id)) return;
-
-    const isBackground =
-      document.hidden || !document.hasFocus();
-
-    if (!isBackground) return;
-
-    if (localStorage.getItem("veylo-notification-sound") === "true") {
-      playNotificationSound();
-    }
-
-    if (localStorage.getItem("veylo-desktop-notifications") === "true") {
-      showDesktopNotification(
-        message.username || "Veylo",
-        message.text || "新しいメッセージ"
-      );
-    }
-
-  }
-
-  notificationSoundToggleButton?.addEventListener("click", () => {
-
-    const enabled =
-      !(localStorage.getItem("veylo-notification-sound") === "true");
-
-    localStorage.setItem("veylo-notification-sound", String(enabled));
-
-    notificationSoundToggleButton.textContent = enabled ? "ON" : "OFF";
-
-    if (enabled) {
-      playNotificationSound();
-    }
-
-  });
-
-  desktopNotificationToggleButton?.addEventListener("click", async () => {
-
-    const enabling =
-      !(localStorage.getItem("veylo-desktop-notifications") === "true");
-
-    if (enabling) {
-
-      if (!("Notification" in window)) {
-        alert("お使いのブラウザはデスクトップ通知に対応していません。");
-        return;
-      }
-
-      const permission = await Notification.requestPermission();
-
-      if (permission !== "granted") {
-        alert("通知が許可されませんでした。ブラウザの設定をご確認ください。");
-        return;
-      }
-
-    }
-
-    localStorage.setItem("veylo-desktop-notifications", String(enabling));
-
-    desktopNotificationToggleButton.textContent = enabling ? "ON" : "OFF";
-
-  });
-
-  // ==================================================
-  // パスワード変更
-  // ==================================================
-
-  changePasswordButton?.addEventListener("click", async () => {
-
-    const currentPassword = String(currentPasswordInput?.value || "");
-    const newPassword = String(newPasswordInput?.value || "");
-
-    if (!currentPassword || !newPassword) {
-      if (passwordChangeMessage) passwordChangeMessage.textContent = "すべての項目を入力してください。";
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      if (passwordChangeMessage) passwordChangeMessage.textContent = "新しいパスワードは8文字以上で入力してください。";
-      return;
-    }
-
-    try {
-
-      if (passwordChangeMessage) passwordChangeMessage.textContent = "変更しています…";
-
-      await api("/api/password", {
-        method: "PUT",
-        body: JSON.stringify({ currentPassword, newPassword })
-      });
-
-      if (passwordChangeMessage) passwordChangeMessage.textContent = "パスワードを変更しました。";
-
-      if (currentPasswordInput) currentPasswordInput.value = "";
-      if (newPasswordInput) newPasswordInput.value = "";
-
-    } catch (error) {
-
-      if (passwordChangeMessage) passwordChangeMessage.textContent = error.message || "変更できませんでした。";
-
-    }
-
-  });
-
-  // ==================================================
-  // アカウント削除
-  // ==================================================
-
-  deleteAccountButton?.addEventListener("click", async () => {
-
-    if (deleteAccountPasswordInput?.classList.contains("hidden")) {
-
-      deleteAccountPasswordInput.classList.remove("hidden");
-      deleteAccountPasswordInput.focus();
-
-      if (deleteAccountMessage) {
-        deleteAccountMessage.textContent = "確認のためパスワードを入力し、もう一度クリックしてください。";
-      }
-
-      return;
-
-    }
-
-    const password = String(deleteAccountPasswordInput?.value || "");
-
-    if (!password) {
-      if (deleteAccountMessage) deleteAccountMessage.textContent = "パスワードを入力してください。";
-      return;
-    }
-
-    const confirmed = window.confirm(
-      "本当にアカウントを削除しますか？この操作は取り消せません。"
+  } catch (error) {
+
+    console.error(
+      "Server startup failed:",
+      error
     );
 
-    if (!confirmed) return;
-
-    try {
-
-      if (deleteAccountMessage) deleteAccountMessage.textContent = "削除しています…";
-
-      await api("/api/account", {
-        method: "DELETE",
-        body: JSON.stringify({ password })
-      });
-
-      if (socket) socket.disconnect();
-
-      window.location.reload();
-
-    } catch (error) {
-
-      if (deleteAccountMessage) deleteAccountMessage.textContent = error.message || "削除できませんでした。";
-
-    }
-
-  });
-
-  languageSelect?.addEventListener("change", () => {
-
-    localStorage.setItem(
-      "veylo-language",
-      languageSelect.value
-    );
-
-    applyLanguage(languageSelect.value);
-
-  });
-
-  saveSettingsButton?.addEventListener(
-    "click",
-    () => {
-
-      if (languageSelect) {
-
-        localStorage.setItem(
-          "veylo-language",
-          languageSelect.value
-        );
-
-      }
-
-      closeSettings();
-
-    }
-  );
-
-  // ==================================================
-  // Logout
-  // ==================================================
-
-  logoutButton?.addEventListener(
-    "click",
-    async () => {
-
-      const confirmed =
-        window.confirm(
-          "ログアウトしますか？"
-        );
-
-      if (!confirmed) {
-        return;
-      }
-
-      try {
-
-        await api(
-          "/api/logout",
-          {
-            method: "POST"
-          }
-        );
-
-        if (socket) {
-
-          socket.disconnect();
-
-        }
-
-        currentUser =
-          null;
-
-        myRooms =
-          [];
-
-        dmListData = [];
-        renderDMList();
-
-        currentChatType = "room";
-
-        currentRoomId =
-          "casual";
-
-        currentRoom = {
-          id: "casual",
-          name: "雑談",
-          inviteCode: null,
-          ownerId: null
-        };
-
-        clearReply();
-
-        clearMessages();
-
-        showScreen(
-          "auth"
-        );
-
-        showAuthPanel(
-          loginPanel
-        );
-
-        closeSettings();
-
-      } catch (error) {
-
-        alert(
-          error.message ||
-          "ログアウトに失敗しました。"
-        );
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // Login
-  // ==================================================
-
-  loginForm?.addEventListener(
-    "submit",
-    async (event) => {
-
-      event.preventDefault();
-
-      if (loginError) {
-
-        loginError.textContent =
-          "";
-
-      }
-
-      const name =
-        String(
-          document.getElementById(
-            "loginName"
-          )?.value ||
-          ""
-        ).trim();
-
-      const password =
-        String(
-          document.getElementById(
-            "loginPassword"
-          )?.value ||
-          ""
-        );
-
-      try {
-
-        const data =
-          await api(
-            "/api/login",
-            {
-              method: "POST",
-
-              body:
-                JSON.stringify({
-                  name,
-                  password
-                })
-            }
-          );
-
-        currentUser =
-          data.user;
-
-        updateUserUI();
-
-        showScreen(
-          "app"
-        );
-
-        connectSocket();
-
-      } catch (error) {
-
-        if (loginError) {
-
-          loginError.textContent =
-            error.message ||
-            "ログインに失敗しました。";
-
-        }
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // Register
-  // ==================================================
-
-  registerForm?.addEventListener(
-    "submit",
-    async (event) => {
-
-      event.preventDefault();
-
-      if (registerError) {
-
-        registerError.textContent =
-          "";
-
-      }
-
-      const email =
-        String(
-          document.getElementById(
-            "registerEmail"
-          )?.value ||
-          ""
-        ).trim();
-
-      const name =
-        String(
-          document.getElementById(
-            "registerName"
-          )?.value ||
-          ""
-        ).trim();
-
-      const password =
-        String(
-          document.getElementById(
-            "registerPassword"
-          )?.value ||
-          ""
-        );
-
-      try {
-
-        const data =
-          await api(
-            "/api/register",
-            {
-              method: "POST",
-
-              body:
-                JSON.stringify({
-                  email,
-                  name,
-                  password
-                })
-            }
-          );
-
-        currentUser =
-          data.user;
-
-        updateUserUI();
-
-        showScreen(
-          "app"
-        );
-
-        connectSocket();
-
-      } catch (error) {
-
-        if (registerError) {
-
-          registerError.textContent =
-            error.message ||
-            "登録に失敗しました。";
-
-        }
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // Forgot Password
-  // ==================================================
-
-  forgotForm?.addEventListener(
-    "submit",
-    async (event) => {
-
-      event.preventDefault();
-
-      if (forgotMessage) {
-
-        forgotMessage.textContent =
-          "";
-
-      }
-
-      const email =
-        String(
-          document.getElementById(
-            "forgotEmail"
-          )?.value ||
-          ""
-        ).trim();
-
-      try {
-
-        const data =
-          await api(
-            "/api/forgot-password",
-            {
-              method: "POST",
-
-              body:
-                JSON.stringify({
-                  email
-                })
-            }
-          );
-
-        if (forgotMessage) {
-
-          forgotMessage.textContent =
-            data.message ||
-            "メールを送信しました。";
-
-        }
-
-      } catch (error) {
-
-        if (forgotMessage) {
-
-          forgotMessage.textContent =
-            error.message ||
-            "処理に失敗しました。";
-
-        }
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // Auth Navigation
-  // ==================================================
-
-  showRegisterButton?.addEventListener(
-    "click",
-    () => {
-
-      showAuthPanel(
-        registerPanel
-      );
-
-    }
-  );
-
-  showLoginButton?.addEventListener(
-    "click",
-    () => {
-
-      showAuthPanel(
-        loginPanel
-      );
-
-    }
-  );
-
-  forgotPasswordButton?.addEventListener(
-    "click",
-    () => {
-
-      showAuthPanel(
-        forgotPanel
-      );
-
-    }
-  );
-
-  backToLoginButton?.addEventListener(
-    "click",
-    () => {
-
-      showAuthPanel(
-        loginPanel
-      );
-
-    }
-  );
-
-  // ==================================================
-  // Modal Outside Click
-  // ==================================================
-
-  createModal?.addEventListener(
-    "click",
-    (event) => {
-
-      if (
-        event.target ===
-        createModal
-      ) {
-
-        closeCreateModal();
-
-      }
-
-    }
-  );
-
-  joinModal?.addEventListener(
-    "click",
-    (event) => {
-
-      if (
-        event.target ===
-        joinModal
-      ) {
-
-        closeJoinModal();
-
-      }
-
-    }
-  );
-
-  settingsModal?.addEventListener(
-    "click",
-    (event) => {
-
-      if (
-        event.target ===
-        settingsModal
-      ) {
-
-        closeSettings();
-
-      }
-
-    }
-  );
-
-  // ==================================================
-  // ESC
-  // ==================================================
-
-  document.addEventListener(
-    "keydown",
-    (event) => {
-
-      if (
-        event.key !==
-        "Escape"
-      ) {
-
-        return;
-
-      }
-
-      closeCreateModal();
-
-      closeJoinModal();
-
-      closeSettings();
-
-      clearReply();
-
-    }
-  );
-
-  // ==================================================
-  // Initialize
-  // ==================================================
-
-  async function init() {
-
-    console.log(
-      "Veylo App initializing..."
-    );
-
-    loadSettings();
-
-    const loggedIn =
-      await loadCurrentUser();
-
-    if (!loggedIn) {
-
-      return;
-
-    }
-
-    connectSocket();
+    process.exit(1);
 
   }
 
-  init();
+}
 
-});
+start();
