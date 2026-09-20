@@ -7190,3 +7190,149 @@ body.gray-mode .message-actions {
   background: #f23f42;
   flex-shrink: 0;
 }
+
+/* =========================================================
+   ★ 質問箱
+========================================================= */
+
+.qa-board {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  text-align: left;
+}
+
+.qa-board-title {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-soft);
+  margin-bottom: 8px;
+}
+
+.qa-list, .qa-inbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qa-item, .qa-inbox-item {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.qa-question {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.qa-answer {
+  font-size: 13px;
+  color: var(--text-soft);
+  padding-left: 12px;
+}
+
+.qa-answer-input {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  resize: vertical;
+}
+
+.qa-inbox-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* =========================================================
+   ★ 通報ボタン
+========================================================= */
+
+.message-report-button {
+  opacity: .8;
+}
+
+.message-report-button:hover {
+  color: var(--danger, #e05252);
+}
+
+/* =========================================================
+   ★ 管理者パネル
+========================================================= */
+
+.admin-panel-content {
+  max-width: 560px;
+}
+
+.admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-report-item {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.admin-report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.admin-report-reason {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--danger, #e05252);
+}
+
+.admin-report-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.admin-report-line {
+  font-size: 12.5px;
+  color: var(--text-soft);
+  margin-bottom: 3px;
+  word-break: break-word;
+}
+
+.admin-report-reporter {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.admin-resolve-button {
+  margin-top: 6px;
+}
+
+.admin-user-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface-soft);
+  border: 1px solid var(--border);
+}
+
+.admin-user-name {
+  flex: 1 1 auto;
+  font-size: 13px;
+  font-weight: 700;
+}
