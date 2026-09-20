@@ -1,7 +1,7 @@
 "use strict";
 
 // ==================================================
-// Veylo App.js
+// コンネついーと App.js
 // ==================================================
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -1398,6 +1398,23 @@ document.addEventListener("DOMContentLoaded", () => {
         loadFriends();
       }
     );
+
+    socket.on("admin status changed", (data) => {
+
+      if (!data || !currentUser) return;
+
+      currentUser.isAdmin = Boolean(data.isAdmin);
+
+      adminSettingsGroup?.classList.toggle("hidden", !currentUser.isAdmin);
+
+      addNotification(
+        "admin",
+        currentUser.isAdmin
+          ? "管理者に任命されました"
+          : "管理者権限が解除されました"
+      );
+
+    });
 
     socket.on(
       "friend request received",
@@ -4460,6 +4477,35 @@ document.addEventListener("DOMContentLoaded", () => {
 
   });
 
+  // ==================================================
+  // 入力欄の自動リサイズ（テキストエリア化）
+  // ==================================================
+
+  function autoResizeMessageInput() {
+
+    if (!messageInput) return;
+
+    messageInput.style.height = "auto";
+
+    const maxHeight = 160;
+
+    messageInput.style.height =
+      `${Math.min(messageInput.scrollHeight, maxHeight)}px`;
+
+  }
+
+  messageInput?.addEventListener("input", autoResizeMessageInput);
+
+  // Enterで改行、Ctrl+Enter（Macは⌘+Enter）で送信
+  messageInput?.addEventListener("keydown", (event) => {
+
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      messageForm?.requestSubmit();
+    }
+
+  });
+
   messageForm?.addEventListener(
     "submit",
     (event) => {
@@ -4521,6 +4567,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       messageInput.value =
         "";
+
+      autoResizeMessageInput();
 
       pendingImageDataUrl = null;
       imageAttachPreview?.classList.add("hidden");
@@ -5293,8 +5341,34 @@ document.addEventListener("DOMContentLoaded", () => {
           row.innerHTML = `
             <span class="user-search-avatar">${avatarInnerHtml(item.avatar, item.name)}</span>
             <span class="admin-user-name">${escapeHtml(item.name)}${item.isAdmin ? " 🛡️" : ""}</span>
+            <button type="button" class="secondary-button admin-toggle-admin-button">${item.isAdmin ? "管理者を解除" : "管理者にする"}</button>
             <button type="button" class="secondary-button danger admin-delete-user-button">削除</button>
           `;
+
+          row.querySelector(".admin-toggle-admin-button")?.addEventListener("click", async () => {
+
+            const makeAdmin = !item.isAdmin;
+
+            const confirmText =
+              makeAdmin
+                ? `「${item.name}」を管理者にしますか？`
+                : `「${item.name}」の管理者権限を解除しますか？`;
+
+            if (!confirm(confirmText)) return;
+
+            try {
+              await api(`/api/admin/users/${item.id}/set-admin`, {
+                method: "POST",
+                body: JSON.stringify({ isAdmin: makeAdmin })
+              });
+              item.isAdmin = makeAdmin;
+              row.querySelector(".admin-user-name").textContent = item.name + (makeAdmin ? " 🛡️" : "");
+              row.querySelector(".admin-toggle-admin-button").textContent = makeAdmin ? "管理者を解除" : "管理者にする";
+            } catch (error) {
+              alert(error.message || "処理できませんでした。");
+            }
+
+          });
 
           row.querySelector(".admin-delete-user-button")?.addEventListener("click", async () => {
 
@@ -6034,7 +6108,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (localStorage.getItem("veylo-desktop-notifications") === "true") {
       showDesktopNotification(
-        message.username || "Veylo",
+        message.username || "コンネついーと",
         message.text || "新しいメッセージ"
       );
     }
@@ -6642,7 +6716,7 @@ document.addEventListener("DOMContentLoaded", () => {
   async function init() {
 
     console.log(
-      "Veylo App initializing..."
+      "コンネついーと App initializing..."
     );
 
     loadSettings();
