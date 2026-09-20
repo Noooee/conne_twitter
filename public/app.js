@@ -360,6 +360,106 @@ document.addEventListener("DOMContentLoaded", () => {
   let viewedProfileUserId = null;
 
   // ==================================================
+  // 質問箱・通報
+  // ==================================================
+
+  const viewProfileQuestionButton =
+    document.getElementById("viewProfileQuestionButton");
+
+  const viewProfileReportButton =
+    document.getElementById("viewProfileReportButton");
+
+  const viewProfileQABoard =
+    document.getElementById("viewProfileQABoard");
+
+  const viewProfileQAList =
+    document.getElementById("viewProfileQAList");
+
+  const askQuestionModal =
+    document.getElementById("askQuestionModal");
+
+  const closeAskQuestionButton =
+    document.getElementById("closeAskQuestionButton");
+
+  const questionInput =
+    document.getElementById("questionInput");
+
+  const askQuestionMessage =
+    document.getElementById("askQuestionMessage");
+
+  const sendQuestionButton =
+    document.getElementById("sendQuestionButton");
+
+  const questionInboxModal =
+    document.getElementById("questionInboxModal");
+
+  const closeQuestionInboxButton =
+    document.getElementById("closeQuestionInboxButton");
+
+  const questionInboxList =
+    document.getElementById("questionInboxList");
+
+  const questionInboxEmpty =
+    document.getElementById("questionInboxEmpty");
+
+  const reportModal =
+    document.getElementById("reportModal");
+
+  const closeReportButton =
+    document.getElementById("closeReportButton");
+
+  const reportReasonSelect =
+    document.getElementById("reportReasonSelect");
+
+  const reportDetailInput =
+    document.getElementById("reportDetailInput");
+
+  const reportMessage =
+    document.getElementById("reportMessage");
+
+  const submitReportButton =
+    document.getElementById("submitReportButton");
+
+  let pendingReportTarget = null;
+
+  const openQuestionInboxButton =
+    document.getElementById("openQuestionInboxButton");
+
+  // ==================================================
+  // 管理者パネル
+  // ==================================================
+
+  const adminSettingsGroup =
+    document.getElementById("adminSettingsGroup");
+
+  const openAdminPanelButton =
+    document.getElementById("openAdminPanelButton");
+
+  const adminPanelModal =
+    document.getElementById("adminPanelModal");
+
+  const closeAdminPanelButton =
+    document.getElementById("closeAdminPanelButton");
+
+  const adminPanelReports =
+    document.getElementById("adminPanelReports");
+
+  const adminPanelUsers =
+    document.getElementById("adminPanelUsers");
+
+  const adminReportsList =
+    document.getElementById("adminReportsList");
+
+  const adminReportsEmpty =
+    document.getElementById("adminReportsEmpty");
+
+  const adminUserSearchInput =
+    document.getElementById("adminUserSearchInput");
+
+  const adminUsersList =
+    document.getElementById("adminUsersList");
+
+  // ==================================================
   // Settings
   // ==================================================
 
@@ -1112,6 +1212,8 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!currentUser) {
       return;
     }
+
+    adminSettingsGroup?.classList.toggle("hidden", !currentUser.isAdmin);
 
     if (usernameInput) {
 
@@ -1901,6 +2003,20 @@ document.addEventListener("DOMContentLoaded", () => {
           }
 
         }
+      );
+
+    });
+
+    // ==================================================
+    // 質問箱通知
+    // ==================================================
+
+    socket.on("question received", () => {
+
+      addNotification(
+        "question",
+        "質問箱に新しい質問が届きました",
+        () => openQuestionInboxModal()
       );
 
     });
@@ -3822,7 +3938,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // ----------------------------------------------
 
     const actionsHtml = message.isDm
-      ? ""
+      ? (
+        !isOwn
+          ? `
+            <div class="message-actions">
+              <button type="button" class="message-report-button" data-action="report-message" title="このメッセージを通報">🚩</button>
+            </div>
+          `
+          : ""
+      )
       : `
         <div class="message-actions">
           <button type="button" class="message-reply-button" data-action="reply" title="このコメントに返信">↩ 返信</button>
@@ -3832,7 +3956,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 <button type="button" class="message-edit-button" data-action="edit">編集</button>
                 <button type="button" class="message-delete-button" data-action="delete">削除</button>
               `
-              : ""
+              : `
+                <button type="button" class="message-report-button" data-action="report-message" title="このメッセージを通報">🚩</button>
+              `
           }
         </div>
       `;
@@ -4017,6 +4143,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
         }
       );
+
+    // ----------------------------------------------
+    // Report
+    // ----------------------------------------------
+
+    wrapper
+      .querySelector('[data-action="report-message"]')
+      ?.addEventListener("click", () => {
+
+        openReportModal({
+          targetUserId: message.userId,
+          targetMessageId: message.id,
+          targetMessageText: message.text || ""
+        });
+
+      });
+
 
     // ----------------------------------------------
     // Delete
@@ -4665,6 +4808,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     viewedProfileUserId = Number(userId);
 
+    viewProfileQuestionButton?.classList.remove("hidden");
+    viewProfileReportButton?.classList.remove("hidden");
+    viewProfileQABoard?.classList.add("hidden");
+    if (viewProfileQAList) viewProfileQAList.innerHTML = "";
+
     viewProfileModal.classList.remove("hidden");
 
     try {
@@ -4694,6 +4842,34 @@ document.addEventListener("DOMContentLoaded", () => {
         viewProfileBio.textContent = "プロフィールを取得できませんでした。";
       }
 
+    }
+
+    loadPublicQABoard(viewedProfileUserId);
+
+  }
+
+  async function loadPublicQABoard(userId) {
+
+    try {
+
+      const data = await api(`/api/questions/answered/${userId}`);
+      const list = Array.isArray(data?.questions) ? data.questions : [];
+
+      if (list.length === 0 || !viewProfileQAList || !viewProfileQABoard) {
+        return;
+      }
+
+      viewProfileQABoard.classList.remove("hidden");
+
+      viewProfileQAList.innerHTML = list.map(item => `
+        <div class="qa-item">
+          <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
+          <div class="qa-answer">↳ ${escapeHtml(item.answer)}</div>
+        </div>
+      `).join("");
+
+    } catch (error) {
+      console.error("loadPublicQABoard error:", error);
     }
 
   }
@@ -4774,6 +4950,374 @@ document.addEventListener("DOMContentLoaded", () => {
     if (event.target === viewProfileModal) {
       closeViewProfileModal();
     }
+
+  });
+
+  // ==================================================
+  // 質問箱：質問を送る
+  // ==================================================
+
+  function openAskQuestionModal() {
+    if (!askQuestionModal) return;
+    if (questionInput) questionInput.value = "";
+    if (askQuestionMessage) askQuestionMessage.textContent = "";
+    askQuestionModal.classList.remove("hidden");
+  }
+
+  function closeAskQuestionModal() {
+    askQuestionModal?.classList.add("hidden");
+  }
+
+  viewProfileQuestionButton?.addEventListener("click", () => {
+    closeViewProfileModal();
+    openAskQuestionModal();
+  });
+
+  closeAskQuestionButton?.addEventListener("click", closeAskQuestionModal);
+
+  askQuestionModal?.addEventListener("click", (event) => {
+    if (event.target === askQuestionModal) closeAskQuestionModal();
+  });
+
+  sendQuestionButton?.addEventListener("click", async () => {
+
+    const question = String(questionInput?.value || "").trim();
+
+    if (!question) {
+      if (askQuestionMessage) askQuestionMessage.textContent = "質問を入力してください。";
+      return;
+    }
+
+    try {
+
+      await api("/api/questions", {
+        method: "POST",
+        body: JSON.stringify({ toUserId: viewedProfileUserId, question })
+      });
+
+      if (askQuestionMessage) askQuestionMessage.textContent = "送信しました！";
+
+      setTimeout(closeAskQuestionModal, 700);
+
+    } catch (error) {
+      if (askQuestionMessage) askQuestionMessage.textContent = error.message || "送信できませんでした。";
+    }
+
+  });
+
+  // ==================================================
+  // 質問箱：受信トレイ
+  // ==================================================
+
+  function openQuestionInboxModal() {
+    questionInboxModal?.classList.remove("hidden");
+    loadQuestionInbox();
+  }
+
+  function closeQuestionInboxModal() {
+    questionInboxModal?.classList.add("hidden");
+  }
+
+  closeQuestionInboxButton?.addEventListener("click", closeQuestionInboxModal);
+
+  questionInboxModal?.addEventListener("click", (event) => {
+    if (event.target === questionInboxModal) closeQuestionInboxModal();
+  });
+
+  async function loadQuestionInbox() {
+
+    try {
+
+      const data = await api("/api/questions/inbox");
+      const list = Array.isArray(data?.questions) ? data.questions : [];
+
+      questionInboxEmpty?.classList.toggle("hidden", list.length > 0);
+
+      if (!questionInboxList) return;
+
+      questionInboxList.innerHTML = "";
+
+      for (const item of list) {
+
+        const row = document.createElement("div");
+        row.className = "qa-inbox-item";
+
+        if (item.answer) {
+
+          row.innerHTML = `
+            <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
+            <div class="qa-answer">↳ ${escapeHtml(item.answer)}</div>
+          `;
+
+        } else {
+
+          row.innerHTML = `
+            <div class="qa-question">💌 ${escapeHtml(item.question)}</div>
+            <textarea class="qa-answer-input" placeholder="回答を書く..." maxlength="500"></textarea>
+            <div class="qa-inbox-actions">
+              <button type="button" class="secondary-button qa-skip-button">削除</button>
+              <button type="button" class="primary-button qa-answer-button">回答する</button>
+            </div>
+          `;
+
+          const textarea = row.querySelector(".qa-answer-input");
+
+          row.querySelector(".qa-answer-button")?.addEventListener("click", async () => {
+
+            const answer = String(textarea?.value || "").trim();
+
+            if (!answer) return;
+
+            try {
+              await api(`/api/questions/${item.id}/answer`, {
+                method: "POST",
+                body: JSON.stringify({ answer })
+              });
+              loadQuestionInbox();
+            } catch (error) {
+              alert(error.message || "回答できませんでした。");
+            }
+
+          });
+
+          row.querySelector(".qa-skip-button")?.addEventListener("click", async () => {
+
+            try {
+              await api(`/api/questions/${item.id}`, { method: "DELETE" });
+              loadQuestionInbox();
+            } catch (error) {
+              alert(error.message || "削除できませんでした。");
+            }
+
+          });
+
+        }
+
+        questionInboxList.appendChild(row);
+
+      }
+
+    } catch (error) {
+      console.error("loadQuestionInbox error:", error);
+    }
+
+  }
+
+  // ==================================================
+  // 通報
+  // ==================================================
+
+  function openReportModal(target) {
+
+    pendingReportTarget = target;
+
+    if (reportModal) {
+      if (reportReasonSelect) reportReasonSelect.value = "spam";
+      if (reportDetailInput) reportDetailInput.value = "";
+      if (reportMessage) reportMessage.textContent = "";
+      reportModal.classList.remove("hidden");
+    }
+
+  }
+
+  function closeReportModal() {
+    reportModal?.classList.add("hidden");
+    pendingReportTarget = null;
+  }
+
+  viewProfileReportButton?.addEventListener("click", () => {
+    openReportModal({ targetUserId: viewedProfileUserId });
+  });
+
+  closeReportButton?.addEventListener("click", closeReportModal);
+
+  reportModal?.addEventListener("click", (event) => {
+    if (event.target === reportModal) closeReportModal();
+  });
+
+  submitReportButton?.addEventListener("click", async () => {
+
+    if (!pendingReportTarget) return;
+
+    const reason = reportReasonSelect?.value || "other";
+    const detail = String(reportDetailInput?.value || "").trim();
+
+    try {
+
+      await api("/api/reports", {
+        method: "POST",
+        body: JSON.stringify({ ...pendingReportTarget, reason, detail })
+      });
+
+      if (reportMessage) reportMessage.textContent = "通報を受け付けました。ご協力ありがとうございます。";
+
+      setTimeout(closeReportModal, 900);
+
+    } catch (error) {
+      if (reportMessage) reportMessage.textContent = error.message || "送信できませんでした。";
+    }
+
+  });
+
+  openQuestionInboxButton?.addEventListener("click", () => {
+    closeSettings();
+    openQuestionInboxModal();
+  });
+
+  // ==================================================
+  // 管理者パネル
+  // ==================================================
+
+  function openAdminPanel() {
+    adminPanelModal?.classList.remove("hidden");
+    switchAdminTab("reports");
+    loadAdminReports();
+  }
+
+  function closeAdminPanel() {
+    adminPanelModal?.classList.add("hidden");
+  }
+
+  openAdminPanelButton?.addEventListener("click", () => {
+    closeSettings();
+    openAdminPanel();
+  });
+
+  closeAdminPanelButton?.addEventListener("click", closeAdminPanel);
+
+  adminPanelModal?.addEventListener("click", (event) => {
+    if (event.target === adminPanelModal) closeAdminPanel();
+  });
+
+  function switchAdminTab(tab) {
+
+    document.querySelectorAll("[data-admin-tab]").forEach(button => {
+      button.classList.toggle("active", button.dataset.adminTab === tab);
+    });
+
+    adminPanelReports?.classList.toggle("hidden", tab !== "reports");
+    adminPanelUsers?.classList.toggle("hidden", tab !== "users");
+
+  }
+
+  document.querySelectorAll("[data-admin-tab]").forEach(button => {
+    button.addEventListener("click", () => switchAdminTab(button.dataset.adminTab));
+  });
+
+  async function loadAdminReports() {
+
+    try {
+
+      const data = await api("/api/admin/reports");
+      const list = Array.isArray(data?.reports) ? data.reports : [];
+
+      adminReportsEmpty?.classList.toggle("hidden", list.length > 0);
+
+      if (!adminReportsList) return;
+
+      adminReportsList.innerHTML = "";
+
+      const reasonLabels = {
+        spam: "スパム・宣伝",
+        harassment: "嫌がらせ・誹謗中傷",
+        inappropriate: "不適切なコンテンツ",
+        impersonation: "なりすまし",
+        other: "その他"
+      };
+
+      for (const report of list) {
+
+        const item = document.createElement("div");
+        item.className = "admin-report-item";
+
+        item.innerHTML = `
+          <div class="admin-report-header">
+            <span class="admin-report-reason">${escapeHtml(reasonLabels[report.reason] || report.reason)}</span>
+            <span class="admin-report-time">${formatTime(report.createdAt)}</span>
+          </div>
+          ${report.targetUserName ? `<div class="admin-report-line">対象ユーザー: ${escapeHtml(report.targetUserName)}</div>` : ""}
+          ${report.targetMessageText ? `<div class="admin-report-line">メッセージ: 「${escapeHtml(report.targetMessageText)}」</div>` : ""}
+          ${report.detail ? `<div class="admin-report-line">詳細: ${escapeHtml(report.detail)}</div>` : ""}
+          <div class="admin-report-line admin-report-reporter">報告者: ${escapeHtml(report.reporterName)}</div>
+          <button type="button" class="secondary-button admin-resolve-button">対応済みにする</button>
+        `;
+
+        item.querySelector(".admin-resolve-button")?.addEventListener("click", async () => {
+          try {
+            await api(`/api/admin/reports/${report.id}/resolve`, { method: "POST" });
+            loadAdminReports();
+          } catch (error) {
+            alert(error.message || "処理できませんでした。");
+          }
+        });
+
+        adminReportsList.appendChild(item);
+
+      }
+
+    } catch (error) {
+      console.error("loadAdminReports error:", error);
+    }
+
+  }
+
+  let adminUserSearchTimeout = null;
+
+  adminUserSearchInput?.addEventListener("input", () => {
+
+    clearTimeout(adminUserSearchTimeout);
+
+    adminUserSearchTimeout = setTimeout(async () => {
+
+      const q = adminUserSearchInput.value.trim();
+
+      if (!q) {
+        if (adminUsersList) adminUsersList.innerHTML = "";
+        return;
+      }
+
+      try {
+
+        const data = await api(`/api/admin/users/search?q=${encodeURIComponent(q)}`);
+        const list = Array.isArray(data?.users) ? data.users : [];
+
+        if (!adminUsersList) return;
+
+        adminUsersList.innerHTML = "";
+
+        for (const item of list) {
+
+          const row = document.createElement("div");
+          row.className = "admin-user-item";
+
+          row.innerHTML = `
+            <span class="user-search-avatar">${avatarInnerHtml(item.avatar, item.name)}</span>
+            <span class="admin-user-name">${escapeHtml(item.name)}${item.isAdmin ? " 🛡️" : ""}</span>
+            <button type="button" class="secondary-button danger admin-delete-user-button">削除</button>
+          `;
+
+          row.querySelector(".admin-delete-user-button")?.addEventListener("click", async () => {
+
+            if (!confirm(`「${item.name}」を削除しますか？この操作は取り消せません。`)) return;
+
+            try {
+              await api(`/api/admin/users/${item.id}`, { method: "DELETE" });
+              row.remove();
+            } catch (error) {
+              alert(error.message || "削除できませんでした。");
+            }
+
+          });
+
+          adminUsersList.appendChild(row);
+
+        }
+
+      } catch (error) {
+        console.error("admin user search error:", error);
+      }
+
+    }, 300);
 
   });
 
@@ -5182,7 +5726,48 @@ document.addEventListener("DOMContentLoaded", () => {
       delete_account_button: "アカウントを削除する",
       logout: "ログアウト",
       close: "閉じる",
-      save: "保存"
+      save: "保存",
+
+      message_placeholder: "メッセージを入力...",
+      members_title: "メンバー",
+      online_label: "オンライン",
+      offline_label: "オフライン",
+      add_channel: "チャンネルを作成",
+      new_dm: "新しいDMを始める",
+      no_dms: "まだDMはありません",
+      search_users: "ユーザーを検索",
+      clear_all: "すべて既読",
+      no_notifications: "通知はありません",
+
+      friends_tab_friends: "フレンド",
+      friends_tab_incoming: "受信リクエスト",
+      friends_tab_outgoing: "送信済み",
+      no_friends: "まだフレンドがいません",
+      no_incoming: "届いているリクエストはありません",
+      no_outgoing: "送信中のリクエストはありません",
+
+      send_question: "質問を送る",
+      ask_question_title: "質問を送る",
+      ask_question_desc: "この質問は匿名で届きます。相手が回答すると公開されます。",
+      question_placeholder: "聞きたいことを書いてください",
+      send: "送信する",
+      question_inbox_title: "質問箱に届いた質問",
+      no_questions: "まだ質問は届いていません",
+      qa_board_title: "質問箱",
+      answer_placeholder: "回答を書く...",
+      answer_button: "回答する",
+
+      report_button: "通報",
+      report_title: "通報する",
+      report_reason_label: "理由",
+      report_reason_spam: "スパム・宣伝",
+      report_reason_harassment: "嫌がらせ・誹謗中傷",
+      report_reason_inappropriate: "不適切なコンテンツ",
+      report_reason_impersonation: "なりすまし",
+      report_reason_other: "その他",
+      report_detail_label: "詳細（任意）",
+      report_detail_placeholder: "詳しい状況があれば教えてください",
+      submit_report: "通報を送信"
     },
     en: {
       tagline: "A casual place to chat",
@@ -5225,7 +5810,48 @@ document.addEventListener("DOMContentLoaded", () => {
       delete_account_button: "Delete Account",
       logout: "Log Out",
       close: "Close",
-      save: "Save"
+      save: "Save",
+
+      message_placeholder: "Type a message...",
+      members_title: "Members",
+      online_label: "Online",
+      offline_label: "Offline",
+      add_channel: "Create Channel",
+      new_dm: "Start a new DM",
+      no_dms: "No DMs yet",
+      search_users: "Search Users",
+      clear_all: "Mark all as read",
+      no_notifications: "No notifications",
+
+      friends_tab_friends: "Friends",
+      friends_tab_incoming: "Incoming Requests",
+      friends_tab_outgoing: "Sent Requests",
+      no_friends: "No friends yet",
+      no_incoming: "No incoming requests",
+      no_outgoing: "No sent requests",
+
+      send_question: "Send a Question",
+      ask_question_title: "Send a Question",
+      ask_question_desc: "This question will be sent anonymously. It becomes public once answered.",
+      question_placeholder: "Write what you'd like to ask",
+      send: "Send",
+      question_inbox_title: "Questions You've Received",
+      no_questions: "No questions yet",
+      qa_board_title: "Q&A Box",
+      answer_placeholder: "Write an answer...",
+      answer_button: "Answer",
+
+      report_button: "Report",
+      report_title: "Report",
+      report_reason_label: "Reason",
+      report_reason_spam: "Spam / Advertising",
+      report_reason_harassment: "Harassment / Abuse",
+      report_reason_inappropriate: "Inappropriate Content",
+      report_reason_impersonation: "Impersonation",
+      report_reason_other: "Other",
+      report_detail_label: "Details (optional)",
+      report_detail_placeholder: "Share more details if you can",
+      submit_report: "Submit Report"
     }
   };
 
@@ -5265,6 +5891,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     document.documentElement.lang = lang === "en" ? "en" : "ja";
+
+  }
+
+  function t(key) {
+
+    const lang =
+      localStorage.getItem("veylo-language") || "ja";
+
+    const dict =
+      TRANSLATIONS[lang] || TRANSLATIONS.ja;
+
+    return dict[key] !== undefined ? dict[key] : (TRANSLATIONS.ja[key] || key);
 
   }
 
