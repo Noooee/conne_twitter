@@ -746,6 +746,26 @@ document.addEventListener("DOMContentLoaded", () => {
     if (route) navigateToRoute(route);
   });
 
+  // ==================================================
+  // Escキーで開いているモーダルを閉じる
+  // ==================================================
+
+  document.addEventListener("keydown", (event) => {
+
+    if (event.key !== "Escape") return;
+
+    const openModal =
+      document.querySelector(".modal:not(.hidden)");
+
+    if (openModal) {
+      openModal.classList.add("hidden");
+      return;
+    }
+
+    closeReactionPicker();
+
+  });
+
   let currentRoom = {
     id: "casual",
     name: "雑談",
@@ -5583,17 +5603,10 @@ document.addEventListener("DOMContentLoaded", () => {
     imageAttachInput?.click();
   });
 
-  imageAttachInput?.addEventListener("change", async () => {
+  async function attachImageFile(file) {
 
-    const file = imageAttachInput.files?.[0];
-
-    if (!file) {
-      return;
-    }
-
-    if (!file.type.startsWith("image/")) {
+    if (!file || !file.type.startsWith("image/")) {
       alert("画像ファイルを選んでください。");
-      imageAttachInput.value = "";
       return;
     }
 
@@ -5610,11 +5623,21 @@ document.addEventListener("DOMContentLoaded", () => {
 
       alert(error.message || "画像を処理できませんでした。");
 
-    } finally {
-
-      imageAttachInput.value = "";
-
     }
+
+  }
+
+  imageAttachInput?.addEventListener("change", async () => {
+
+    const file = imageAttachInput.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    await attachImageFile(file);
+
+    imageAttachInput.value = "";
 
   });
 
@@ -5625,6 +5648,66 @@ document.addEventListener("DOMContentLoaded", () => {
     if (imageAttachPreviewImg) imageAttachPreviewImg.src = "";
 
   });
+
+  // ==================================================
+  // 画像の貼り付け・ドラッグ＆ドロップ対応
+  // ==================================================
+
+  messageInput?.addEventListener("paste", async (event) => {
+
+    const items = event.clipboardData?.items;
+
+    if (!items) return;
+
+    for (const item of items) {
+
+      if (item.type && item.type.startsWith("image/")) {
+
+        event.preventDefault();
+
+        const file = item.getAsFile();
+
+        if (file) await attachImageFile(file);
+
+        return;
+
+      }
+
+    }
+
+  });
+
+  if (messageForm) {
+
+    ["dragenter", "dragover"].forEach(eventName => {
+
+      messageForm.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        messageForm.classList.add("drag-over");
+      });
+
+    });
+
+    ["dragleave", "drop"].forEach(eventName => {
+
+      messageForm.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        messageForm.classList.remove("drag-over");
+      });
+
+    });
+
+    messageForm.addEventListener("drop", async (event) => {
+
+      const file = event.dataTransfer?.files?.[0];
+
+      if (file && file.type.startsWith("image/")) {
+        await attachImageFile(file);
+      }
+
+    });
+
+  }
 
   profileAvatarInput?.addEventListener("change", async () => {
 
