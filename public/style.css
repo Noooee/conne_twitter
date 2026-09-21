@@ -7382,3 +7382,34 @@ body.gray-mode .message-actions {
   background: var(--primary-light);
   box-shadow: 0 0 0 3px rgba(88, 101, 242, .18);
 }
+
+/* =========================================================
+   ★ コメント表示：完全にフラット・コンパクトに
+   （枠線・影を一切出さず、Discordのように隙間なく詰める）
+========================================================= */
+
+.message,
+.message-bubble,
+.message-body {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.message {
+  margin: 0 !important;
+  padding: 0.5px 16px !important;
+  border-radius: 0 !important;
+}
+
+.message:not(.grouped) {
+  margin-top: 5px !important;
+}
+
+.message:first-child {
+  margin-top: 2px !important;
+}
+
+.message:hover {
+  background: var(--ui-other, rgba(0,0,0,.025)) !important;
+}
