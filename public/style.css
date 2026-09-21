@@ -7372,3 +7372,13 @@ body.gray-mode .message-actions {
 .message-form textarea#messageInput::placeholder {
   color: var(--text-muted);
 }
+
+/* =========================================================
+   ★ 画像のドラッグ＆ドロップ
+========================================================= */
+
+.message-form.drag-over {
+  border-color: var(--primary);
+  background: var(--primary-light);
+  box-shadow: 0 0 0 3px rgba(88, 101, 242, .18);
+}
