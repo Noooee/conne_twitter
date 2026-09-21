@@ -1289,280 +1289,379 @@ select:focus-visible {
 
 
 /* ==================================================
-   Veylo Discord Style Message UI
+   Message Bubble
+   自然なLINE風吹き出し
 ================================================== */
 
-/* メッセージ一覧 */
-.messages {
-    flex: 1;
-    overflow-y: auto;
-
-    padding: 16px 20px 120px;
-
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-
-    scroll-behavior: smooth;
-}
-
-/* 1コメント */
 .message {
-    position: relative;
+  position: relative;
 
-    display: flex;
-    flex-direction: column;
+  width: fit-content;
 
-    width: 100%;
-    max-width: none;
+  max-width: min(680px, 82%);
 
-    margin: 0;
-    padding: 6px 12px;
+  margin:
+    0 auto 18px;
 
-    border-radius: 8px;
+  padding:
+    10px 14px 9px;
 
-    background: transparent;
-    border: 1px solid transparent;
+  border:
+    1px solid var(--border);
 
-    transition:
-        background .15s ease,
-        border-color .15s ease;
+  border-radius:
+    18px 18px 18px 6px;
+
+  background:
+    var(--surface);
+
+  box-shadow:
+    0 2px 8px rgba(31, 41, 55, .035);
+
+  transform-origin:
+    left bottom;
+
+  animation:
+    messageAppear .28s cubic-bezier(.2, .8, .2, 1);
+
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition),
+    transform var(--transition);
 }
+
+
+@keyframes messageAppear {
+  from {
+    opacity: 0;
+    transform:
+      translateY(7px)
+      scale(.985);
+  }
+
+  to {
+    opacity: 1;
+    transform:
+      translateY(0)
+      scale(1);
+  }
+}
+
+
+/*
+  自然な吹き出しの尻尾
+*/
+
+.message::before {
+  content: "";
+
+  position: absolute;
+
+  left: -5px;
+  bottom: 3px;
+
+  width: 11px;
+  height: 11px;
+
+  background: var(--surface);
+
+  border-left:
+    1px solid var(--border);
+
+  border-bottom:
+    1px solid var(--border);
+
+  transform:
+    rotate(45deg);
+
+  border-radius: 0 0 0 3px;
+
+  z-index: 0;
+}
+
+
+.message > * {
+  position: relative;
+  z-index: 1;
+}
+
 
 .message:hover {
-    background: var(--surface-soft);
+  box-shadow:
+    0 5px 16px rgba(31, 41, 55, .065);
+
+  transform:
+    translateY(-1px);
 }
 
-/* 吹き出し削除 */
-.message::before {
-    display: none;
-}
 
-/* ヘッダー */
-.message-header {
-    display: flex;
-    align-items: center;
+/* ==================================================
+   Optional Own Message Support
 
-    gap: 8px;
+   JS側で .own / .mine / .self のいずれかを
+   付けた場合に右側へ変更できます。
+================================================== */
 
-    margin-bottom: 2px;
-}
-
-/* 名前 */
-.message-user {
-    color: var(--primary);
-
-    font-size: 13px;
-    font-weight: 700;
-}
-
-/* 時刻 */
-.message-time {
-    color: var(--text-muted);
-
-    font-size: 11px;
-}
-
-/* 本文 */
-.message-content {
-    display: inline-block;
-
-    max-width: 850px;
-
-    padding: 8px 12px;
-
-    border-radius: 12px;
-
-    background: var(--surface);
-
-    border: 1px solid var(--border);
-
-    font-size: 14px;
-    line-height: 1.5;
-
-    word-break: break-word;
-
-    box-shadow:
-        0 1px 3px rgba(0,0,0,.04);
-}
-
-/* テキスト */
-.message-text {
-    white-space: pre-wrap;
-}
-
-/* 編集済み */
-.edited-label {
-    color: var(--text-muted);
-
-    font-size: 10px;
-
-    margin-left: 4px;
-}
-
-/* 自分 */
 .message.own,
 .message.mine,
 .message.self {
-    align-items: flex-end;
+  margin-left: auto;
+  margin-right: 0;
+
+  border-radius:
+    18px 18px 6px 18px;
+
+  background:
+    var(--primary);
+
+  border-color:
+    var(--primary);
+
+  color: #fff;
+
+  box-shadow:
+    0 4px 13px rgba(102, 126, 234, .15);
+
+  transform-origin:
+    right bottom;
 }
 
-/* 自分の吹き出し */
+
+.message.own::before,
+.message.mine::before,
+.message.self::before {
+  left: auto;
+  right: -5px;
+
+  background: var(--primary);
+
+  border-left: 0;
+  border-bottom: 0;
+
+  border-right:
+    1px solid var(--primary);
+
+  border-bottom:
+    1px solid var(--primary);
+}
+
+
+.message.own .message-user,
+.message.mine .message-user,
+.message.self .message-user {
+  color: rgba(255, 255, 255, .88);
+}
+
+
+.message.own .message-time,
+.message.mine .message-time,
+.message.self .message-time {
+  color: rgba(255, 255, 255, .62);
+}
+
+
 .message.own .message-content,
 .message.mine .message-content,
 .message.self .message-content {
-
-    background: var(--primary);
-
-    color: white;
-
-    border-color: var(--primary);
-
-    border-radius:
-        12px
-        12px
-        4px
-        12px;
+  color: #fff;
 }
 
-/* 自分の文字 */
-.message.own .message-text,
-.message.mine .message-text,
-.message.self .message-text {
-    color: white;
+
+.message.own .message-actions,
+.message.mine .message-actions,
+.message.self .message-actions {
+  border-top-color:
+    rgba(255, 255, 255, .16);
 }
 
-/* アクション */
+
+.message.own .message-actions button,
+.message.mine .message-actions button,
+.message.self .message-actions button {
+  color:
+    rgba(255, 255, 255, .68);
+}
+
+
+.message.own .message-actions button:hover,
+.message.mine .message-actions button:hover,
+.message.self .message-actions button:hover {
+  background:
+    rgba(255, 255, 255, .12);
+
+  color: #fff;
+}
+
+
+/* ==================================================
+   Message Header
+================================================== */
+
+.message-header {
+  display: flex;
+  align-items: baseline;
+
+  gap: 8px;
+
+  margin-bottom: 4px;
+}
+
+
+.message-user {
+  color: var(--primary);
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+
+.message-time {
+  color: var(--text-muted);
+
+  font-size: 9px;
+}
+
+
+/* ==================================================
+   Message Content
+================================================== */
+
+.message-content {
+  color: var(--text);
+
+  font-size: 14px;
+  line-height: 1.65;
+
+  word-break: break-word;
+}
+
+
+.message-text {
+  white-space: pre-wrap;
+}
+
+
+/* ==================================================
+   Edited
+================================================== */
+
+.edited-label {
+  display: inline-block;
+
+  margin-left: 5px;
+
+  color: var(--text-muted);
+
+  font-size: 9px;
+}
+
+
+/* ==================================================
+   Message Actions
+================================================== */
+
 .message-actions {
+  display: flex;
+  align-items: center;
 
-    position: absolute;
+  gap: 3px;
 
-    right: 10px;
-    top: -12px;
+  margin-top: 6px;
+  padding-top: 5px;
 
-    display: flex;
+  border-top:
+    1px solid rgba(229, 232, 239, .7);
 
-    gap: 2px;
+  opacity: .72;
 
-    padding: 4px;
-
-    border-radius: 8px;
-
-    background: var(--surface);
-
-    border: 1px solid var(--border);
-
-    box-shadow:
-        0 3px 12px rgba(0,0,0,.08);
-
-    opacity: 0;
-
-    pointer-events: none;
-
-    transition:
-        opacity .15s ease;
+  transition:
+    opacity var(--transition);
 }
 
-/* ホバー時 */
+
 .message:hover .message-actions {
-    opacity: 1;
-
-    pointer-events: auto;
+  opacity: 1;
 }
 
-/* ボタン */
+
 .message-actions button {
+  padding: 3px 7px;
 
-    width: 28px;
-    height: 28px;
+  border: 0;
 
-    border: none;
+  border-radius: 7px;
 
-    border-radius: 6px;
+  background: transparent;
 
-    background: transparent;
+  color: var(--text-muted);
 
-    color: var(--text-muted);
+  font-size: 10px;
 
-    transition:
-        background .15s ease,
-        color .15s ease;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    transform var(--transition-fast);
 }
+
 
 .message-actions button:hover {
-    background: var(--surface-hover);
+  background: var(--surface-hover);
 
-    color: var(--text);
+  color: var(--text);
+
+  transform: translateY(-1px);
 }
 
-/* 削除 */
-.delete-action:hover {
-    color: var(--danger);
 
-    background:
-        rgba(255,0,0,.08);
+.message-actions .delete-action:hover {
+  color: var(--danger);
+
+  background:
+    rgba(224, 82, 82, .07);
 }
 
-/* 返信 */
+
+/* ==================================================
+   Reply Information
+================================================== */
+
 .message-reply-info {
+  margin-bottom: 7px;
 
-    margin-bottom: 5px;
+  padding: 6px 9px;
 
-    padding: 4px 8px;
+  border-left:
+    3px solid var(--primary);
 
-    border-left:
-        3px solid var(--primary);
+  border-radius: 7px;
 
-    border-radius: 6px;
+  background: var(--primary-light);
 
-    background: var(--primary-light);
+  color: var(--primary);
 
-    font-size: 11px;
+  font-size: 10px;
 
-    overflow: hidden;
+  cursor: pointer;
 
-    text-overflow: ellipsis;
+  overflow: hidden;
 
-    white-space: nowrap;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  transition:
+    background var(--transition),
+    transform var(--transition);
 }
 
-/* ダーク */
-body.dark-mode .message:hover {
-    background:
-        rgba(255,255,255,.03);
+
+.message-reply-info:hover {
+  background:
+    rgba(102, 126, 234, .16);
+
+  transform: translateX(2px);
 }
 
-/* スマホ */
-@media (max-width:560px){
-
-    .messages{
-        padding:
-            10px
-            8px
-            110px;
-    }
-
-    .message{
-        padding:5px 7px;
-    }
-
-    .message-content{
-        max-width:100%;
-
-        font-size:13px;
-
-        padding:
-            7px 10px;
-    }
-
-    .message-user{
-        font-size:12px;
-    }
-
-    .message-time{
-        font-size:10px;
-    }
-}
 
 /* ==================================================
    Message Highlight
@@ -7282,522 +7381,4 @@ body.gray-mode .message-actions {
   border-color: var(--primary);
   background: var(--primary-light);
   box-shadow: 0 0 0 3px rgba(88, 101, 242, .18);
-}
-
-
-/* =========================================================
-   Veylo — Message UI FINAL BUG FIX
-   Discord風・コンパクト吹き出し
-   ---------------------------------------------------------
-   既存CSSに大量の .message 系定義が重複しているため、
-   このブロックを最優先の最終上書きとして使用します。
-========================================================= */
-
-/* メッセージ一覧：上下の余白を極小化 */
-.messages {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: stretch !important;
-  gap: 0 !important;
-
-  padding: 10px 16px 120px !important;
-
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-}
-
-/* 1メッセージの「外側」は透明な行にする
-   → 二重枠・二重吹き出しを完全に防止 */
-.messages > .message {
-  position: relative !important;
-
-  display: flex !important;
-  flex-direction: row !important;
-  align-items: flex-start !important;
-
-  width: 100% !important;
-  max-width: none !important;
-  min-width: 0 !important;
-
-  margin: 0 !important;
-  padding: 1px 8px !important;
-
-  border: 0 !important;
-  border-radius: 0 !important;
-
-  background: transparent !important;
-  box-shadow: none !important;
-
-  animation: none;
-}
-
-/* 新しい投稿者の先頭だけ、ほんの少し区切る */
-.messages > .message:not(.grouped) {
-  margin-top: 5px !important;
-}
-
-/* 一番上だけ余計な余白を付けない */
-.messages > .message:first-child,
-.messages > .message:first-child:not(.grouped) {
-  margin-top: 0 !important;
-}
-
-/* 行そのものをホバーしたときだけ薄くハイライト */
-.messages > .message:hover {
-  background: var(--surface-soft) !important;
-}
-
-/* 自分/他人とも外側の行には枠を付けない */
-.messages > .message.own,
-.messages > .message.mine,
-.messages > .message.self,
-.messages > .message.me,
-.messages > .message[data-own="true"],
-.messages > .message[data-self="true"],
-.messages > .message[data-user="self"] {
-  margin-left: 0 !important;
-  margin-right: 0 !important;
-  align-self: stretch !important;
-
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-/* 吹き出しの尻尾は使わない
-   → 二重枠の原因になるため完全無効化 */
-.messages > .message::before,
-.messages > .message::after,
-.messages > .message.own::before,
-.messages > .message.mine::before,
-.messages > .message.self::before,
-.messages > .message.me::before,
-.messages > .message[data-own="true"]::before,
-.messages > .message[data-self="true"]::before,
-.messages > .message[data-user="self"]::before {
-  display: none !important;
-  content: none !important;
-}
-
-/* アバター：Discord寄りに小さく */
-.messages > .message .message-avatar {
-  flex: 0 0 32px !important;
-
-  width: 32px !important;
-  height: 32px !important;
-
-  margin: 1px 0 0 !important;
-
-  border-radius: 50% !important;
-
-  overflow: hidden !important;
-  box-shadow: none !important;
-
-  font-size: 12px !important;
-}
-
-/* 連続投稿の空きアバターも高さを食わない */
-.messages > .message.grouped .message-avatar {
-  background: transparent !important;
-  border: 0 !important;
-  box-shadow: none !important;
-  cursor: default !important;
-}
-
-/* メッセージ本文側 */
-.messages > .message .message-body {
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
-
-  padding: 0 !important;
-}
-
-/* ユーザー名 */
-.messages > .message .message-header {
-  display: flex !important;
-  align-items: baseline !important;
-  gap: 7px !important;
-
-  margin: 0 0 2px !important;
-  padding: 0 !important;
-
-  min-height: 17px;
-}
-
-.messages > .message .message-username,
-.messages > .message .message-user {
-  font-size: 14px !important;
-  line-height: 17px !important;
-  font-weight: 700 !important;
-}
-
-/* 時刻 */
-.messages > .message .message-time {
-  font-size: 10px !important;
-  line-height: 14px !important;
-  color: var(--text-muted) !important;
-}
-
-/* =========================================================
-   吹き出し本体
-   → 枠はここだけ
-========================================================= */
-
-.messages > .message .message-content,
-.messages > .message .message-bubble {
-  display: block !important;
-
-  width: fit-content !important;
-  max-width: min(720px, 100%) !important;
-  min-width: 0 !important;
-
-  margin: 0 !important;
-  padding: 5px 10px !important;
-
-  border: 1px solid var(--border) !important;
-  border-radius: 9px 9px 9px 3px !important;
-
-  background: var(--surface) !important;
-  color: var(--text) !important;
-
-  box-shadow: none !important;
-
-  text-align: left !important;
-  font-size: 14px !important;
-  line-height: 1.45 !important;
-
-  word-break: break-word !important;
-  overflow-wrap: anywhere !important;
-}
-
-/* 本文 */
-.messages > .message .message-text {
-  display: block !important;
-
-  margin: 0 !important;
-  padding: 0 !important;
-
-  color: inherit !important;
-
-  font-size: 14px !important;
-  line-height: 1.45 !important;
-
-  text-align: left !important;
-  white-space: pre-wrap !important;
-  word-break: break-word !important;
-  overflow-wrap: anywhere !important;
-}
-
-/* 自分の吹き出し */
-.messages > .message.own .message-content,
-.messages > .message.mine .message-content,
-.messages > .message.self .message-content,
-.messages > .message.me .message-content,
-.messages > .message[data-own="true"] .message-content,
-.messages > .message[data-self="true"] .message-content,
-.messages > .message[data-user="self"] .message-content,
-.messages > .message.own .message-bubble,
-.messages > .message.mine .message-bubble,
-.messages > .message.self .message-bubble,
-.messages > .message.me .message-bubble {
-  background: var(--primary) !important;
-  border-color: var(--primary) !important;
-  color: #fff !important;
-
-  border-radius: 9px 9px 3px 9px !important;
-}
-
-.messages > .message.own .message-text,
-.messages > .message.mine .message-text,
-.messages > .message.self .message-text,
-.messages > .message.me .message-text,
-.messages > .message[data-own="true"] .message-text,
-.messages > .message[data-self="true"] .message-text,
-.messages > .message[data-user="self"] .message-text {
-  color: #fff !important;
-}
-
-/* 自分の名前 */
-.messages > .message.own .message-username,
-.messages > .message.mine .message-username,
-.messages > .message.self .message-username,
-.messages > .message.me .message-username {
-  color: var(--primary) !important;
-}
-
-/* 編集済み */
-.messages > .message .message-edited,
-.messages > .message .edited-label {
-  margin-left: 3px !important;
-  font-size: 9px !important;
-  color: var(--text-muted) !important;
-}
-
-/* リアクションも吹き出しに食い込ませない */
-.messages > .message .message-reactions {
-  margin: 3px 0 0 !important;
-  gap: 3px !important;
-}
-
-/* 返信カード */
-.messages > .message .message-reply-card {
-  margin: 0 0 3px !important;
-  padding: 4px 8px !important;
-  border: 0 !important;
-  box-shadow: none !important;
-}
-
-/* アクションは外側の二重枠に見えないようにする */
-.messages > .message .message-actions {
-  border: 1px solid var(--border) !important;
-  box-shadow: 0 2px 8px rgba(0,0,0,.10) !important;
-  border-radius: 7px !important;
-}
-
-/* grouped の上下余白を完全に除去 */
-.messages > .message.grouped,
-.messages > .message.grouped:first-child {
-  margin-top: 0 !important;
-  margin-bottom: 0 !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-}
-
-/* 連続投稿ではヘッダーを詰める */
-.messages > .message.grouped .message-header {
-  display: none !important;
-}
-
-/* grouped は本文だけ少し下げる */
-.messages > .message.grouped .message-body {
-  padding-top: 0 !important;
-}
-
-/* =========================================================
-   設定画面：確実にスクロール可能
-========================================================= */
-
-.modal-content {
-  display: flex !important;
-  flex-direction: column !important;
-
-  max-height: calc(100dvh - 32px) !important;
-  min-height: 0 !important;
-}
-
-.modal-header,
-.modal-footer {
-  flex: 0 0 auto !important;
-}
-
-.modal-body {
-  flex: 1 1 auto !important;
-  min-height: 0 !important;
-
-  overflow-y: auto !important;
-  overflow-x: hidden !important;
-
-  -webkit-overflow-scrolling: touch !important;
-  overscroll-behavior: contain;
-}
-
-/* 設定系コンテンツが長くても縮める */
-.settings-content,
-.settings-panel,
-.settings-body {
-  min-height: 0 !important;
-}
-
-/* スクロールバー */
-.modal-body::-webkit-scrollbar,
-.messages::-webkit-scrollbar {
-  width: 7px;
-}
-
-.modal-body::-webkit-scrollbar-thumb,
-.messages::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 999px;
-}
-
-.modal-body::-webkit-scrollbar-track,
-.messages::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-/* =========================================================
-   スマホ
-========================================================= */
-
-@media (max-width: 560px) {
-  .messages {
-    padding: 8px 9px 112px !important;
-  }
-
-  .messages > .message {
-    padding: 1px 4px !important;
-  }
-
-  .messages > .message .message-avatar {
-    flex-basis: 30px !important;
-    width: 30px !important;
-    height: 30px !important;
-    margin-top: 1px !important;
-  }
-
-  .messages > .message .message-username,
-  .messages > .message .message-user {
-    font-size: 13px !important;
-  }
-
-  .messages > .message .message-text,
-  .messages > .message .message-content,
-  .messages > .message .message-bubble {
-    font-size: 13px !important;
-    line-height: 1.45 !important;
-  }
-
-  .messages > .message .message-content,
-  .messages > .message .message-bubble {
-    max-width: calc(100vw - 65px) !important;
-    padding: 5px 9px !important;
-  }
-
-  .modal-content {
-    max-height: calc(100dvh - 20px) !important;
-  }
-}
-
-
-/* =========================================================
-   Veylo — Message Bubble v3
-   スクショで確認した「縦に伸びる吹き出し」を修正
-========================================================= */
-
-/* 行の高さを内容に完全追従させる */
-.messages > .message {
-  height: auto !important;
-  min-height: 0 !important;
-
-  flex: 0 0 auto !important;
-  align-items: flex-start !important;
-}
-
-/* 本文エリアも勝手に高さを持たせない */
-.messages > .message .message-body {
-  height: auto !important;
-  min-height: 0 !important;
-
-  flex: 0 1 auto !important;
-  align-self: flex-start !important;
-
-  display: block !important;
-}
-
-/* ★今回のスクショの主原因対策
-   吹き出しを「中身の高さだけ」にする */
-.messages > .message .message-content,
-.messages > .message .message-bubble {
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-
-  flex: 0 0 auto !important;
-  align-self: flex-start !important;
-
-  box-sizing: border-box !important;
-
-  vertical-align: top !important;
-}
-
-/* 本文自体にも余計な高さを絶対に持たせない */
-.messages > .message .message-text {
-  height: auto !important;
-  min-height: 0 !important;
-  max-height: none !important;
-
-  display: inline !important;
-
-  margin: 0 !important;
-  padding: 0 !important;
-
-  line-height: 1.45 !important;
-}
-
-/* 名前・時刻行も高さをコンパクトに */
-.messages > .message .message-header {
-  height: auto !important;
-  min-height: 0 !important;
-
-  flex: 0 0 auto !important;
-}
-
-/* アバターの高さだけを基準にして、メッセージ自体を
-   不必要に広げない */
-.messages > .message .message-avatar {
-  align-self: flex-start !important;
-}
-
-/* grouped の本文も同じ */
-.messages > .message.grouped .message-body,
-.messages > .message.grouped .message-content,
-.messages > .message.grouped .message-bubble {
-  height: auto !important;
-  min-height: 0 !important;
-}
-
-/* 返信・リアクションが無い通常コメントの余白をゼロに */
-.messages > .message .message-reply-card:empty,
-.messages > .message .message-reply-info:empty {
-  display: none !important;
-}
-
-/* リアクションは小さく */
-.messages > .message .message-reactions {
-  min-height: 0 !important;
-  height: auto !important;
-  margin: 2px 0 0 !important;
-}
-
-/* メッセージ間隔をさらにDiscord寄りに */
-.messages > .message:not(.grouped) {
-  margin-top: 4px !important;
-}
-
-.messages > .message.grouped {
-  margin-top: 0 !important;
-}
-
-/* 1行コメントは特にコンパクト */
-.messages > .message .message-content:has(.message-text:only-child) {
-  min-height: 0 !important;
-}
-
-/* hover時の背景も吹き出しを大きく見せない */
-.messages > .message:hover {
-  border: 0 !important;
-  box-shadow: none !important;
-}
-
-/* 画面幅が狭い場合 */
-@media (max-width: 760px) {
-  .messages > .message .message-content,
-  .messages > .message .message-bubble {
-    width: fit-content !important;
-    max-width: calc(100vw - 64px) !important;
-  }
-}
-
-@media (max-width: 560px) {
-  .messages > .message .message-content,
-  .messages > .message .message-bubble {
-    max-width: calc(100vw - 55px) !important;
-    padding: 5px 9px !important;
-  }
-
-  .messages > .message {
-    padding-left: 3px !important;
-    padding-right: 3px !important;
-  }
 }
