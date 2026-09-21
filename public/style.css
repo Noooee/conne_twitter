@@ -7905,3 +7905,88 @@ body.gray-mode .reply-preview {
     font-size: 12px;
   }
 }
+
+
+/* =========================================================
+   ★ Veylo Message UI FINAL FIX v2
+   下余白ゼロ / 二重枠防止 / 本文だけ1つの吹き出し
+========================================================= */
+
+/* メッセージ行そのものには枠を持たせない */
+.message,
+.message.own,
+.message.mine,
+.message.self,
+.message.me,
+.message[data-own="true"],
+.message[data-self="true"],
+.message[data-user="self"] {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  border: 0 !important;
+  border-width: 0 !important;
+  border-style: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+/* 新しい発言グループの上余白も最小化 */
+.message:not(.grouped),
+.message:first-child {
+  margin-top: 0 !important;
+}
+
+/* 行のホバー背景だけは薄く残す */
+.message:hover {
+  background: var(--surface-soft) !important;
+}
+
+/* 本文は「ここだけ」枠を持つ */
+.message-content,
+.message-bubble {
+  margin: 0 !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+}
+
+/* 返信カードにも外側の二重枠を作らない */
+.message-reply-card,
+.message-reply-info {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* 返信と本文の間も詰める */
+.message-reply-card {
+  margin-bottom: 2px !important;
+}
+
+.message-reply-info {
+  margin-bottom: 2px !important;
+}
+
+/* アクションボタンの枠は本文の枠とは別物なので、
+   小さな操作パネルとしてのみ表示 */
+.message-actions {
+  border: 1px solid var(--border) !important;
+}
+
+/* 連続投稿でも余白を増やさない */
+.message.grouped {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* モバイルでも下余白を復活させない */
+@media (max-width: 760px) {
+  .message,
+  .message.own,
+  .message.mine,
+  .message.self,
+  .message.me {
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    border: 0 !important;
+  }
+}
