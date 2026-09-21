@@ -7668,3 +7668,136 @@ body.gray-mode .message-actions {
     max-height: calc(100dvh - 20px) !important;
   }
 }
+
+
+/* =========================================================
+   Veylo — Message Bubble v3
+   スクショで確認した「縦に伸びる吹き出し」を修正
+========================================================= */
+
+/* 行の高さを内容に完全追従させる */
+.messages > .message {
+  height: auto !important;
+  min-height: 0 !important;
+
+  flex: 0 0 auto !important;
+  align-items: flex-start !important;
+}
+
+/* 本文エリアも勝手に高さを持たせない */
+.messages > .message .message-body {
+  height: auto !important;
+  min-height: 0 !important;
+
+  flex: 0 1 auto !important;
+  align-self: flex-start !important;
+
+  display: block !important;
+}
+
+/* ★今回のスクショの主原因対策
+   吹き出しを「中身の高さだけ」にする */
+.messages > .message .message-content,
+.messages > .message .message-bubble {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+
+  flex: 0 0 auto !important;
+  align-self: flex-start !important;
+
+  box-sizing: border-box !important;
+
+  vertical-align: top !important;
+}
+
+/* 本文自体にも余計な高さを絶対に持たせない */
+.messages > .message .message-text {
+  height: auto !important;
+  min-height: 0 !important;
+  max-height: none !important;
+
+  display: inline !important;
+
+  margin: 0 !important;
+  padding: 0 !important;
+
+  line-height: 1.45 !important;
+}
+
+/* 名前・時刻行も高さをコンパクトに */
+.messages > .message .message-header {
+  height: auto !important;
+  min-height: 0 !important;
+
+  flex: 0 0 auto !important;
+}
+
+/* アバターの高さだけを基準にして、メッセージ自体を
+   不必要に広げない */
+.messages > .message .message-avatar {
+  align-self: flex-start !important;
+}
+
+/* grouped の本文も同じ */
+.messages > .message.grouped .message-body,
+.messages > .message.grouped .message-content,
+.messages > .message.grouped .message-bubble {
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+/* 返信・リアクションが無い通常コメントの余白をゼロに */
+.messages > .message .message-reply-card:empty,
+.messages > .message .message-reply-info:empty {
+  display: none !important;
+}
+
+/* リアクションは小さく */
+.messages > .message .message-reactions {
+  min-height: 0 !important;
+  height: auto !important;
+  margin: 2px 0 0 !important;
+}
+
+/* メッセージ間隔をさらにDiscord寄りに */
+.messages > .message:not(.grouped) {
+  margin-top: 4px !important;
+}
+
+.messages > .message.grouped {
+  margin-top: 0 !important;
+}
+
+/* 1行コメントは特にコンパクト */
+.messages > .message .message-content:has(.message-text:only-child) {
+  min-height: 0 !important;
+}
+
+/* hover時の背景も吹き出しを大きく見せない */
+.messages > .message:hover {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+/* 画面幅が狭い場合 */
+@media (max-width: 760px) {
+  .messages > .message .message-content,
+  .messages > .message .message-bubble {
+    width: fit-content !important;
+    max-width: calc(100vw - 64px) !important;
+  }
+}
+
+@media (max-width: 560px) {
+  .messages > .message .message-content,
+  .messages > .message .message-bubble {
+    max-width: calc(100vw - 55px) !important;
+    padding: 5px 9px !important;
+  }
+
+  .messages > .message {
+    padding-left: 3px !important;
+    padding-right: 3px !important;
+  }
+}
