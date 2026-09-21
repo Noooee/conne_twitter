@@ -5152,7 +5152,21 @@ document.addEventListener("DOMContentLoaded", () => {
           row.innerHTML = `
             <div class="qa-question">${item.isForAdmin ? "💬 [運営宛て] " : "💌 "}${escapeHtml(item.question)}</div>
             <div class="qa-answer">↳ ${escapeHtml(item.answer)}</div>
+            <div class="qa-inbox-actions">
+              <button type="button" class="secondary-button qa-hide-button">非表示にする</button>
+            </div>
           `;
+
+          row.querySelector(".qa-hide-button")?.addEventListener("click", async () => {
+
+            try {
+              await api(`/api/questions/${item.id}`, { method: "DELETE" });
+              row.remove();
+            } catch (error) {
+              alert(error.message || "非表示にできませんでした。");
+            }
+
+          });
 
         } else {
 
@@ -5160,7 +5174,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <div class="qa-question">${item.isForAdmin ? "💬 [運営宛て] " : "💌 "}${escapeHtml(item.question)}</div>
             <textarea class="qa-answer-input" placeholder="回答を書く..." maxlength="500"></textarea>
             <div class="qa-inbox-actions">
-              <button type="button" class="secondary-button qa-skip-button">削除</button>
+              <button type="button" class="secondary-button qa-skip-button">非表示にする</button>
               <button type="button" class="primary-button qa-answer-button">回答する</button>
             </div>
           `;
